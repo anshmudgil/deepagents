@@ -20,7 +20,7 @@ R = TypeVar("R")
 
 JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 
-_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-^=]{0,14}$")
+_TICKER_RE = re.compile(r"^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$")
 
 
 def safe_tool(func: Callable[P, R]) -> Callable[P, R | dict[str, str]]:
@@ -111,7 +111,7 @@ def frame_to_records(df: pd.DataFrame | None, max_rows: int = 10) -> list[dict[s
     """Convert a row-oriented DataFrame into a list of JSON-safe records.
 
     Args:
-        df: DataFrame (index is kept as an `index` field when meaningful).
+        df: DataFrame. A meaningful (non-range) index is kept as a field.
         max_rows: Maximum rows to keep.
 
     Returns:
@@ -119,7 +119,9 @@ def frame_to_records(df: pd.DataFrame | None, max_rows: int = 10) -> list[dict[s
     """
     if df is None or getattr(df, "empty", True):
         return []
-    trimmed = df.head(max_rows).reset_index()
+    trimmed = df.head(max_rows)
+    if not isinstance(trimmed.index, pd.RangeIndex):
+        trimmed = trimmed.reset_index()
     return [to_jsonable(rec) for rec in trimmed.to_dict(orient="records")]  # type: ignore[misc]
 
 

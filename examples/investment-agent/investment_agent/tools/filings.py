@@ -30,6 +30,7 @@ _ITEM_HEADING = re.compile(r"\bitem\s+\d{1,2}[a-c]?\s*[.:\-—]", re.IGNORECASE)
 _SCRIPT_STYLE = re.compile(r"<(script|style|head)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 _BLOCK_TAGS = re.compile(r"</?(p|div|br|tr|li|h[1-6]|table)[^>]*>", re.IGNORECASE)
 _ANY_TAG = re.compile(r"<[^>]+>")
+_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
 _XBRL_HIDDEN = re.compile(r"<ix:header>.*?</ix:header>", re.IGNORECASE | re.DOTALL)
 
 
@@ -172,22 +173,48 @@ def html_to_text(raw: str) -> str:
         raw: HTML document.
 
     Returns:
-        Text with block elements as line breaks and whitespace collapsed.
+        Text with block elements as line breaks, typographic quotes made
+        straight (so headings match plain-ASCII queries), and whitespace
+        collapsed.
     """
     text = _XBRL_HIDDEN.sub(" ", raw)
     text = _SCRIPT_STYLE.sub(" ", text)
     text = _BLOCK_TAGS.sub("\n", text)
-    text = html.unescape(_ANY_TAG.sub(" ", text)).replace("\xa0", " ")
+    text = html.unescape(_ANY_TAG.sub(" ", text)).replace("\xa0", " ").translate(_QUOTES)
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
     return re.sub(r"\s*\n\s*", "\n", text).strip()
+
+
+MIN_SECTION_CHARS = 500
+
+
+def _longest_body(text: str, starts: list[int], section: str, headings: list[int]) -> tuple[int, int]:
+    """Pick the start whose body (up to the next "Item N." heading) is longest.
+
+    Args:
+        text: Plain-text filing.
+        starts: Candidate start offsets.
+        section: Heading text being located.
+        headings: Offsets of all "Item N." headings.
+
+    Returns:
+        `(start, length)` of the best candidate.
+    """
+    best_start, best_len = starts[0], -1
+    for start in starts:
+        end = next((h for h in headings if h > start + len(section) + 5), len(text))
+        if end - start > best_len:
+            best_start, best_len = start, end - start
+    return best_start, best_len
 
 
 def extract_section(text: str, section: str) -> str | None:
     """Find a section (e.g. "Item 1A" or "Risk Factors") in filing text.
 
     Filings mention each item twice or more (table of contents, cross
-    references), so the occurrence followed by the longest body before the
-    next "Item N." heading is taken as the real section.
+    references). The occurrence followed by the longest body before the next
+    "Item N." heading is taken as the real section, preferring occurrences
+    that start a line (true headings) when their body is substantial.
 
     Args:
         text: Plain-text filing.
@@ -196,16 +223,17 @@ def extract_section(text: str, section: str) -> str | None:
     Returns:
         The section text, or `None` if the heading is not found.
     """
-    starts = [m.start() for m in re.finditer(re.escape(section), text, re.IGNORECASE)]
-    if not starts:
+    matches = [m.start() for m in re.finditer(re.escape(section), text, re.IGNORECASE)]
+    if not matches:
         return None
     headings = [m.start() for m in _ITEM_HEADING.finditer(text)]
-    best_start, best_len = starts[0], -1
-    for start in starts:
-        end = next((h for h in headings if h > start + len(section) + 5), len(text))
-        if end - start > best_len:
-            best_start, best_len = start, end - start
-    return text[best_start : best_start + best_len]
+    line_starts = [s for s in matches if s == 0 or text[s - 1] == "\n"]
+    if line_starts:
+        start, length = _longest_body(text, line_starts, section, headings)
+        if length >= MIN_SECTION_CHARS:
+            return text[start : start + length]
+    start, length = _longest_body(text, matches, section, headings)
+    return text[start : start + length]
 
 
 @tool(parse_docstring=True)
