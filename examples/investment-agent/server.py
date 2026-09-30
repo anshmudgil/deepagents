@@ -21,7 +21,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Protocol
 
@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.types import Receive, Scope, Send
 
 logger = logging.getLogger("investment_agent.server")
 
@@ -75,7 +76,7 @@ class AgentGraph(Protocol):
         *,
         stream_mode: list[str],
         subgraphs: bool,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """Stream `(namespace, mode, payload)` tuples for a run."""
         ...
 
@@ -328,7 +329,7 @@ class RunStreamer:
 
 async def stream_run(
     holder: AgentHolder, thread_id: str, message: str
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     """Yield SSE frames for one agent run; always ends with `done`."""
     try:
         agent = await holder.get()
@@ -337,20 +338,36 @@ async def stream_run(
         yield sse("error", {"message": AGENT_UNAVAILABLE_MSG})
         yield sse("done", {})
         return
-    config = thread_config(thread_id)
     try:
-        values = state_values(await agent.aget_state(config))
-        streamer = RunStreamer(set(dict(values.get("files") or {})))
-        graph_input: JsonDict = {"messages": [{"role": "user", "content": message}]}
-        async for chunk in agent.astream(
-            graph_input, config, stream_mode=["messages", "updates"], subgraphs=True
-        ):
-            for frame in streamer.on_chunk(chunk):
-                yield frame
+        async for frame in agent_frames(agent, thread_id, message):
+            yield frame
     except Exception:
         logger.exception("Agent run failed for thread %s", thread_id)
         yield sse("error", {"message": RUN_FAILED_MSG})
     yield sse("done", {})
+
+
+async def agent_frames(
+    agent: AgentGraph, thread_id: str, message: str
+) -> AsyncGenerator[str, None]:
+    """Run the agent and yield contract frames, closing the graph stream deterministically.
+
+    The explicit `aclose()` matters on client disconnect: it stops the run now
+    instead of whenever the abandoned generator is garbage-collected.
+    """
+    config = thread_config(thread_id)
+    values = state_values(await agent.aget_state(config))
+    streamer = RunStreamer(set(dict(values.get("files") or {})))
+    graph_input: JsonDict = {"messages": [{"role": "user", "content": message}]}
+    stream = agent.astream(
+        graph_input, config, stream_mode=["messages", "updates"], subgraphs=True
+    )
+    try:
+        async for chunk in stream:
+            for frame in streamer.on_chunk(chunk):
+                yield frame
+    finally:
+        await stream.aclose()
 
 
 # --------------------------------------------------------------------------- thread inspection
@@ -478,7 +495,7 @@ def cors_origins() -> list[str]:
 
 def register_api(app: FastAPI, holder: AgentHolder, cache: QuoteCache) -> None:
     """Attach the `/api` routes to `app`."""
-    busy: set[str] = set()
+    runs = RunRegistry()
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
@@ -490,15 +507,23 @@ def register_api(app: FastAPI, holder: AgentHolder, cache: QuoteCache) -> None:
 
     @app.post("/api/threads/{thread_id}/runs/stream")
     async def run_stream(thread_id: ThreadId, body: RunRequest) -> StreamingResponse:
-        if thread_id in busy:
+        # Claim the thread before any await so concurrent requests cannot both pass.
+        release = runs.acquire(thread_id)
+        if release is None:
             raise HTTPException(
                 status_code=409, detail="A run is already in progress for this thread."
             )
-        return StreamingResponse(
-            _guarded(busy, thread_id, stream_run(holder, thread_id, body.message)),
-            media_type="text/event-stream",
-            headers=SSE_HEADERS,
-        )
+        try:
+            frames = stream_run(holder, thread_id, body.message)
+            return ReleasingStreamingResponse(
+                _guarded(frames, release),
+                release=release,
+                media_type="text/event-stream",
+                headers=SSE_HEADERS,
+            )
+        except Exception:
+            release()
+            raise
 
     @app.get("/api/threads/{thread_id}/files")
     async def thread_files(thread_id: ThreadId) -> dict[str, dict[str, str]]:
@@ -520,16 +545,70 @@ def register_api(app: FastAPI, holder: AgentHolder, cache: QuoteCache) -> None:
         return await get_quote(cache, ticker)
 
 
+class RunRegistry:
+    """Tracks the single active run per thread."""
+
+    def __init__(self) -> None:
+        """Start with no active runs."""
+        self._active: dict[str, object] = {}
+
+    def acquire(self, thread_id: str) -> Callable[[], None] | None:
+        """Claim `thread_id`; return an idempotent release callback, or `None` if busy.
+
+        The release only frees the claim it created, so a late release from a
+        finished run can never free a newer run's claim.
+        """
+        if thread_id in self._active:
+            return None
+        token = object()
+        self._active[thread_id] = token
+
+        def release() -> None:
+            if self._active.get(thread_id) is token:
+                del self._active[thread_id]
+
+        return release
+
+
+class ReleasingStreamingResponse(StreamingResponse):
+    """`StreamingResponse` that runs `release` once the response is finished.
+
+    This covers the case where the body iterator never starts (for example, the
+    client disconnects first), so its own `finally` would never run.
+    """
+
+    def __init__(
+        self,
+        content: AsyncGenerator[str, None],
+        *,
+        release: Callable[[], None],
+        media_type: str,
+        headers: Mapping[str, str],
+    ) -> None:
+        """Wrap `content`, remembering the callback that frees the thread."""
+        super().__init__(content, media_type=media_type, headers=headers)
+        self._release = release
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Send the response, then release the thread whatever happened."""
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._release()
+
+
 async def _guarded(
-    busy: set[str], thread_id: str, frames: AsyncIterator[str]
-) -> AsyncIterator[str]:
-    """Mark `thread_id` busy while `frames` streams, so runs on a thread never overlap."""
-    busy.add(thread_id)
+    frames: AsyncGenerator[str, None], release: Callable[[], None]
+) -> AsyncGenerator[str, None]:
+    """Stream `frames`, then close them and release the thread's run claim."""
     try:
         async for frame in frames:
             yield frame
     finally:
-        busy.discard(thread_id)
+        try:
+            await frames.aclose()
+        finally:
+            release()
 
 
 def mount_web(app: FastAPI, web_dir: Path) -> None:

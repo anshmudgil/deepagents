@@ -34,7 +34,13 @@ NEWS_SENTIMENT_ANALYST = "news-sentiment-analyst"
 RISK_MANAGER = "risk-manager"
 PORTFOLIO_STRATEGIST = "portfolio-strategist"
 
-SUBAGENT_NAMES = (FUNDAMENTAL_ANALYST, QUANT_ANALYST, NEWS_SENTIMENT_ANALYST, RISK_MANAGER, PORTFOLIO_STRATEGIST)
+SUBAGENT_NAMES = (
+    FUNDAMENTAL_ANALYST,
+    QUANT_ANALYST,
+    NEWS_SENTIMENT_ANALYST,
+    RISK_MANAGER,
+    PORTFOLIO_STRATEGIST,
+)
 
 SUBAGENT_TOOLS: dict[str, list[BaseTool]] = {
     FUNDAMENTAL_ANALYST: [
@@ -47,7 +53,12 @@ SUBAGENT_TOOLS: dict[str, list[BaseTool]] = {
         fetch_filing_section,
         run_dcf,
     ],
-    QUANT_ANALYST: [get_quote, get_price_history, technical_indicators, compute_risk_metrics],
+    QUANT_ANALYST: [
+        get_quote,
+        get_price_history,
+        technical_indicators,
+        compute_risk_metrics,
+    ],
     NEWS_SENTIMENT_ANALYST: [search_news, search_filings, get_quote],
     RISK_MANAGER: [
         compute_risk_metrics,
@@ -58,7 +69,13 @@ SUBAGENT_TOOLS: dict[str, list[BaseTool]] = {
         run_dcf,
         analyze_portfolio,
     ],
-    PORTFOLIO_STRATEGIST: [analyze_portfolio, compute_risk_metrics, get_quote, get_key_metrics, compare_peers],
+    PORTFOLIO_STRATEGIST: [
+        analyze_portfolio,
+        compute_risk_metrics,
+        get_quote,
+        get_key_metrics,
+        compare_peers,
+    ],
 }
 
 _DESCRIPTIONS = {
@@ -96,7 +113,9 @@ _PROMPTS = {
 }
 
 
-def build_subagents(date: str, fast_model: str | BaseChatModel | None = None) -> list[SubAgent]:
+def build_subagents(
+    date: str, fast_model: str | BaseChatModel | None = None
+) -> list[SubAgent]:
     """Build the five specialist subagent specs.
 
     Args:

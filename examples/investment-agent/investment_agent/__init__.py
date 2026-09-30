@@ -10,4 +10,9 @@ from investment_agent.agent import (
 )
 from investment_agent.subagents import SUBAGENT_NAMES
 
-__all__ = ["DEFAULT_MODEL", "SUBAGENT_NAMES", "create_investment_agent", "resolve_model_id"]
+__all__ = [
+    "DEFAULT_MODEL",
+    "SUBAGENT_NAMES",
+    "create_investment_agent",
+    "resolve_model_id",
+]

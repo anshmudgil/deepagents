@@ -88,9 +88,21 @@ METRIC_KEYS = {
         "returnOnAssets",
     ],
     "growth": ["revenueGrowth", "earningsGrowth", "earningsQuarterlyGrowth"],
-    "balance_sheet": ["totalCash", "totalDebt", "debtToEquity", "currentRatio", "quickRatio"],
+    "balance_sheet": [
+        "totalCash",
+        "totalDebt",
+        "debtToEquity",
+        "currentRatio",
+        "quickRatio",
+    ],
     "cash_flow": ["freeCashflow", "operatingCashflow"],
-    "shareholder": ["dividendYield", "payoutRatio", "sharesOutstanding", "heldPercentInsiders", "shortPercentOfFloat"],
+    "shareholder": [
+        "dividendYield",
+        "payoutRatio",
+        "sharesOutstanding",
+        "heldPercentInsiders",
+        "shortPercentOfFloat",
+    ],
     "risk": ["beta"],
 }
 
@@ -155,12 +167,18 @@ def fetch_closes(symbol: str, period: str = "1y", interval: str = "1d") -> pd.Se
     Raises:
         ValueError: If no price data is returned (unknown or delisted ticker).
     """
-    hist = get_ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+    hist = get_ticker(symbol).history(
+        period=period, interval=interval, auto_adjust=True
+    )
     if hist is None or hist.empty or "Close" not in hist:
         msg = f"No price history for {symbol!r} (unknown or delisted ticker?)"
         raise ValueError(msg)
     closes = hist["Close"].dropna()
-    closes.index = pd.to_datetime(closes.index).tz_localize(None) if closes.index.tz else closes.index
+    closes.index = (
+        pd.to_datetime(closes.index).tz_localize(None)
+        if closes.index.tz
+        else closes.index
+    )
     return closes
 
 
@@ -287,19 +305,74 @@ def get_financial_statements(
     }
 
 
-def _derived_metrics(info: dict[str, object]) -> dict[str, JSONValue]:
-    """Compute metrics yfinance does not provide directly.
+# Yahoo reports these as percents (150 -> 1.5x debt/equity; 0.41 -> 0.41% yield).
+PERCENT_KEYS = ("debtToEquity", "dividendYield")
+
+UNITS_NOTE = (
+    "Ratios, margins, growth, and yields are fractions (0.25 = 25%). debtToEquity is a multiple (1.5 = 1.5x). "
+    "marketCap/enterpriseValue are in `currency`; totalCash/totalDebt/freeCashflow/operatingCashflow/net_debt are in `financial_currency`."
+)
+
+
+def currencies(info: dict[str, object]) -> dict[str, str]:
+    """Return the trading and financial-reporting currencies of a security.
+
+    Yahoo reports price and market cap in the trading `currency`, but
+    statement-derived values (free cash flow, debt, cash) in
+    `financialCurrency`. For example, TSM trades in USD and reports in TWD.
 
     Args:
         info: yfinance info mapping.
 
     Returns:
-        FCF yield and net debt when inputs exist.
+        Dict with `currency` and `financial_currency`.
+    """
+    trading = str(info.get("currency") or "USD")
+    return {
+        "currency": trading,
+        "financial_currency": str(info.get("financialCurrency") or trading),
+    }
+
+
+def normalize_units(info: dict[str, object]) -> dict[str, object]:
+    """Convert Yahoo percent-denominated fields to fractions or multiples.
+
+    Args:
+        info: yfinance info mapping.
+
+    Returns:
+        A copy with `PERCENT_KEYS` divided by 100.
+    """
+    out = dict(info)
+    for key in PERCENT_KEYS:
+        value = out.get(key)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            out[key] = value / 100.0
+    return out
+
+
+def _derived_metrics(info: dict[str, object]) -> dict[str, JSONValue]:
+    """Compute metrics yfinance does not provide directly.
+
+    FCF yield mixes a statement value with market cap, so it is only computed
+    when both are in the same currency.
+
+    Args:
+        info: yfinance info mapping.
+
+    Returns:
+        FCF yield (or a note explaining its absence) and net debt when inputs exist.
     """
     out: dict[str, JSONValue] = {}
+    cur = currencies(info)
     fcf, mcap = info.get("freeCashflow"), info.get("marketCap")
     if isinstance(fcf, int | float) and isinstance(mcap, int | float) and mcap:
-        out["fcf_yield"] = to_jsonable(fcf / mcap)
+        if cur["currency"] == cur["financial_currency"]:
+            out["fcf_yield"] = to_jsonable(fcf / mcap)
+        else:
+            out["fcf_yield_note"] = (
+                f"Not computed: FCF is in {cur['financial_currency']} but market cap is in {cur['currency']}."
+            )
     debt, cash = info.get("totalDebt"), info.get("totalCash")
     if isinstance(debt, int | float) and isinstance(cash, int | float):
         out["net_debt"] = to_jsonable(debt - cash)
@@ -315,15 +388,24 @@ def get_key_metrics(ticker: str) -> dict[str, JSONValue]:
         ticker: Stock ticker symbol.
 
     Returns:
-        Metrics grouped by category (ratios as fractions, e.g. 0.25 = 25%).
+        Metrics grouped by category (ratios as fractions, e.g. 0.25 = 25%;
+        debtToEquity as a multiple), plus the trading and reporting currencies.
     """
     symbol = normalize_ticker(ticker)
-    info = get_info(get_ticker(symbol))
-    if not info:
+    raw = get_info(get_ticker(symbol))
+    if not raw:
         return {"error": f"No fundamental data for {symbol}"}
+    info = normalize_units(raw)
     groups = {name: _pick(info, keys) for name, keys in METRIC_KEYS.items()}
     groups["derived"] = _derived_metrics(info)
-    return {"ticker": symbol, "name": to_jsonable(info.get("longName")), **groups, "source": "Yahoo Finance via yfinance"}
+    return {
+        "ticker": symbol,
+        "name": to_jsonable(info.get("longName")),
+        **currencies(info),
+        **groups,
+        "units": UNITS_NOTE,
+        "source": "Yahoo Finance via yfinance",
+    }
 
 
 def _safe_attr(t: yf.Ticker, name: str) -> object:
@@ -362,8 +444,12 @@ def get_analyst_estimates(ticker: str) -> dict[str, JSONValue]:
         {
             "ticker": symbol,
             "price_targets": _safe_attr(t, "analyst_price_targets") or {},
-            "recommendations": frame_to_records(_safe_attr(t, "recommendations_summary"), 4),  # type: ignore[arg-type]
-            "earnings_estimate": frame_to_records(_safe_attr(t, "earnings_estimate"), 4),  # type: ignore[arg-type]
+            "recommendations": frame_to_records(
+                _safe_attr(t, "recommendations_summary"), 4
+            ),  # type: ignore[arg-type]
+            "earnings_estimate": frame_to_records(
+                _safe_attr(t, "earnings_estimate"), 4
+            ),  # type: ignore[arg-type]
             "revenue_estimate": frame_to_records(_safe_attr(t, "revenue_estimate"), 4),  # type: ignore[arg-type]
             "recent_rating_changes": frame_to_records(upgrades, 8),  # type: ignore[arg-type]
             "source": "Sell-side consensus via Yahoo Finance",
@@ -383,7 +469,10 @@ def _peer_row(symbol: str) -> dict[str, JSONValue]:
     info = get_info(get_ticker(symbol))
     if not info:
         return {"error": "no data"}
-    return {"name": to_jsonable(info.get("shortName") or symbol), **_pick(info, PEER_KEYS)}
+    return {
+        "name": to_jsonable(info.get("shortName") or symbol),
+        **_pick(info, PEER_KEYS),
+    }
 
 
 def _peer_medians(rows: dict[str, dict[str, JSONValue]]) -> dict[str, JSONValue]:
@@ -426,4 +515,11 @@ def compare_peers(tickers: list[str]) -> dict[str, JSONValue]:
     }
 
 
-MARKET_DATA_TOOLS = [get_quote, get_price_history, get_financial_statements, get_key_metrics, get_analyst_estimates, compare_peers]
+MARKET_DATA_TOOLS = [
+    get_quote,
+    get_price_history,
+    get_financial_statements,
+    get_key_metrics,
+    get_analyst_estimates,
+    compare_peers,
+]

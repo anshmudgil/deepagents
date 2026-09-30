@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pandas as pd
 import pytest
 from deepagents import create_deep_agent
@@ -392,3 +394,113 @@ def test_quote_accepts_index_symbols(
 ) -> None:
     fake_yf.closes["^GSPC"] = [5000.0, 5010.0]
     assert client.get("/api/quote/%5EGSPC").json()["change"] == 10.0
+
+
+class GatedAgent(StubAgent):
+    """Stub whose run blocks on `gate`, recording when the graph stream is closed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.gate = asyncio.Event()
+        self.runs = 0
+        self.closed = 0
+
+    async def astream(
+        self, graph_input: object, config: object, **kwargs: object
+    ) -> AsyncIterator[object]:
+        self.runs += 1
+        self.started.set()
+        try:
+            yield ((), "messages", (AIMessage(content="working"), {}))
+            await self.gate.wait()
+            yield ((), "messages", (AIMessage(content="finished"), {}))
+        finally:
+            self.closed += 1
+
+
+async def _concurrent_runs(tmp_path: Path) -> None:
+    agent = GatedAgent()
+    app = server.create_app(agent, web_dir=tmp_path)
+    url = "/api/threads/shared/runs/stream"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        tasks = [
+            asyncio.create_task(http.post(url, json={"message": "go"}))
+            for _ in range(5)
+        ]
+        await asyncio.wait_for(agent.started.wait(), timeout=5)
+        # The losers must be rejected while the winner is still blocked on the gate.
+        _, pending = await asyncio.wait(tasks, timeout=2)
+        agent.gate.set()
+        assert len(pending) == 1
+        responses = await asyncio.gather(*tasks)
+        statuses = sorted(r.status_code for r in responses)
+        assert statuses == [200, 409, 409, 409, 409]
+        winner = next(r for r in responses if r.status_code == 200)
+        assert parse_sse(winner.text)[-1] == ("done", {})
+        assert agent.runs == 1
+        assert agent.closed == 1
+        # The claim is released once the run completes.
+        again = await http.post(url, json={"message": "again"})
+        assert again.status_code == 200
+        assert agent.runs == 2
+
+
+def test_concurrent_runs_on_one_thread_get_409(tmp_path: Path) -> None:
+    asyncio.run(_concurrent_runs(tmp_path))
+
+
+async def _disconnect_mid_stream(tmp_path: Path) -> None:
+    agent = GatedAgent()
+    app = server.create_app(agent, web_dir=tmp_path)
+    disconnect = asyncio.Event()
+    sent: list[dict[str, object]] = []
+    body = json.dumps({"message": "go"}).encode()
+    requests = iter([{"type": "http.request", "body": body, "more_body": False}])
+
+    async def receive() -> dict[str, object]:
+        request = next(requests, None)
+        if request is not None:
+            return request
+        await disconnect.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+        if message.get("type") == "http.response.body" and message.get("body"):
+            disconnect.set()  # the client goes away after the first frame
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/threads/shared/runs/stream",
+        "raw_path": b"/api/threads/shared/runs/stream",
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("test", 1),
+        "server": ("test", 80),
+    }
+    await asyncio.wait_for(app(scope, receive, send), timeout=5)
+    assert sent[0]["status"] == 200
+    assert not agent.gate.is_set()
+    assert agent.closed == 1  # graph stream closed on disconnect, not left to GC
+    agent.gate.set()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        again = await http.post(
+            "/api/threads/shared/runs/stream", json={"message": "again"}
+        )
+    assert again.status_code == 200
+
+
+def test_disconnect_releases_thread(tmp_path: Path) -> None:
+    asyncio.run(_disconnect_mid_stream(tmp_path))

@@ -25,9 +25,13 @@ def test_simple_returns_rejects_bad_prices(bad: list[float]) -> None:
 def test_annualized_return() -> None:
     assert a.annualized_return([100, 121], periods_per_year=1) == pytest.approx(0.21)
     # Two annual periods, +21% in total = 10% CAGR
-    assert a.annualized_return([100, 110, 121], periods_per_year=1) == pytest.approx(0.10)
+    assert a.annualized_return([100, 110, 121], periods_per_year=1) == pytest.approx(
+        0.10
+    )
     # The same two periods squeezed into one year = 21% CAGR
-    assert a.annualized_return([100, 110, 121], periods_per_year=2) == pytest.approx(0.21)
+    assert a.annualized_return([100, 110, 121], periods_per_year=2) == pytest.approx(
+        0.21
+    )
 
 
 def test_annualized_volatility() -> None:
@@ -38,7 +42,9 @@ def test_annualized_volatility() -> None:
 
 
 def test_sharpe_ratio() -> None:
-    assert a.sharpe_ratio([0.02, 0.0], periods_per_year=1) == pytest.approx(0.01 / math.sqrt(0.0002))
+    assert a.sharpe_ratio([0.02, 0.0], periods_per_year=1) == pytest.approx(
+        0.01 / math.sqrt(0.0002)
+    )
     assert a.sharpe_ratio([0.01, 0.01, 0.01]) is None
 
 
@@ -48,7 +54,9 @@ def test_sharpe_ratio_risk_free_lowers_ratio() -> None:
 
 
 def test_sortino_ratio() -> None:
-    assert a.sortino_ratio([0.02, -0.01], periods_per_year=1) == pytest.approx(0.005 / math.sqrt(0.0001 / 2))
+    assert a.sortino_ratio([0.02, -0.01], periods_per_year=1) == pytest.approx(
+        0.005 / math.sqrt(0.0001 / 2)
+    )
     assert a.sortino_ratio([0.01, 0.02, 0.03]) is None
 
 
@@ -68,7 +76,12 @@ def test_beta() -> None:
 
 def test_max_drawdown() -> None:
     dd = a.max_drawdown([100, 120, 60, 90, 130])
-    assert dd == {"max_drawdown": pytest.approx(0.5), "peak_index": 1, "trough_index": 2, "current_drawdown": 0.0}
+    assert dd == {
+        "max_drawdown": pytest.approx(0.5),
+        "peak_index": 1,
+        "trough_index": 2,
+        "current_drawdown": 0.0,
+    }
     assert a.max_drawdown([1, 2, 3])["max_drawdown"] == 0.0
     assert a.max_drawdown([100, 80])["current_drawdown"] == pytest.approx(0.2)
 
@@ -89,6 +102,12 @@ def test_var_is_zero_when_all_gains() -> None:
 def test_var_rejects_bad_confidence(conf: float) -> None:
     with pytest.raises(ValueError, match="confidence"):
         a.historical_var([0.01, -0.02], conf)
+
+
+def test_wealth_index_keeps_starting_point() -> None:
+    idx = a.wealth_index([-0.5, 0.1])
+    assert idx == pytest.approx([1.0, 0.5, 0.55])
+    assert a.max_drawdown(idx)["max_drawdown"] == pytest.approx(0.5)
 
 
 def test_price_summary() -> None:
@@ -162,14 +181,19 @@ def test_technical_snapshot_short_history() -> None:
 
 
 def test_technical_snapshot_downtrend() -> None:
-    assert a.technical_snapshot([300 * 0.998**i for i in range(300)])["trend"] == "downtrend"
+    assert (
+        a.technical_snapshot([300 * 0.998**i for i in range(300)])["trend"]
+        == "downtrend"
+    )
 
 
 # --- DCF ---------------------------------------------------------------------
 
 
 def test_dcf_zero_growth_equals_perpetuity() -> None:
-    res = a.dcf_valuation(100, 0.0, 0.10, 0.0, years=1, net_debt=200, shares_outstanding=10)
+    res = a.dcf_valuation(
+        100, 0.0, 0.10, 0.0, years=1, net_debt=200, shares_outstanding=10
+    )
     assert res["enterprise_value"] == pytest.approx(1000)
     assert res["equity_value"] == pytest.approx(800)
     assert res["value_per_share"] == pytest.approx(80)
@@ -186,7 +210,9 @@ def test_dcf_without_shares() -> None:
     assert a.dcf_valuation(100, 0.05, 0.1, 0.02)["value_per_share"] is None
 
 
-@pytest.mark.parametrize(("r", "tg", "years"), [(0.03, 0.03, 5), (0.02, 0.03, 5), (0.1, 0.02, 0)])
+@pytest.mark.parametrize(
+    ("r", "tg", "years"), [(0.03, 0.03, 5), (0.02, 0.03, 5), (0.1, 0.02, 0)]
+)
 def test_dcf_rejects_invalid_inputs(r: float, tg: float, years: int) -> None:
     with pytest.raises(ValueError):
         a.dcf_valuation(100, 0.05, r, tg, years=years)
@@ -203,13 +229,18 @@ def test_dcf_sensitivity_shape_and_monotonicity() -> None:
     assert col == sorted(col, reverse=True)  # higher WACC -> lower value
     row = values[2]  # type: ignore[index]
     assert row == sorted(row)  # higher terminal growth -> higher value
-    center = a.dcf_valuation(100, 0.05, 0.09, 0.025, shares_outstanding=10)["value_per_share"]
+    center = a.dcf_valuation(100, 0.05, 0.09, 0.025, shares_outstanding=10)[
+        "value_per_share"
+    ]
     assert values[2][2] == pytest.approx(center)  # type: ignore[index]
 
 
 def test_dcf_sensitivity_undefined_cells() -> None:
     grid = a.dcf_sensitivity(100, 0.05, [0.02, 0.08], [0.03])
-    assert grid["values"] == [[None], [pytest.approx(a.dcf_valuation(100, 0.05, 0.08, 0.03)["equity_value"])]]
+    assert grid["values"] == [
+        [None],
+        [pytest.approx(a.dcf_valuation(100, 0.05, 0.08, 0.03)["equity_value"])],
+    ]
     assert grid["metric"] == "equity_value"
 
 
@@ -233,7 +264,11 @@ def test_normalize_weights_rejects(bad: dict[str, float]) -> None:
 
 def test_herfindahl_index() -> None:
     eq = a.herfindahl_index({k: 1 for k in "ABCD"})
-    assert eq == {"hhi": pytest.approx(0.25), "effective_positions": pytest.approx(4.0), "max_weight": 0.25}
+    assert eq == {
+        "hhi": pytest.approx(0.25),
+        "effective_positions": pytest.approx(4.0),
+        "max_weight": 0.25,
+    }
     assert a.herfindahl_index({"A": 1})["hhi"] == 1.0
     assert a.herfindahl_index({"A": 90, "B": 10})["hhi"] == pytest.approx(0.82)
 
@@ -262,7 +297,10 @@ def test_portfolio_risk_single_asset() -> None:
 
 def test_portfolio_risk_contributions_sum_to_one() -> None:
     rng = np.random.default_rng(7)
-    rets = {k: rng.normal(0, s, 250).tolist() for k, s in [("A", 0.01), ("B", 0.02), ("C", 0.03)]}
+    rets = {
+        k: rng.normal(0, s, 250).tolist()
+        for k, s in [("A", 0.01), ("B", 0.02), ("C", 0.03)]
+    }
     res = a.portfolio_risk({"A": 50, "B": 30, "C": 20}, rets)
     assert sum(res["risk_contribution"].values()) == pytest.approx(1.0)  # type: ignore[attr-defined]
     assert res["diversification_ratio"] > 1.0  # type: ignore[operator]

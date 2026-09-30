@@ -45,7 +45,7 @@ User ─▶ Orchestrator ┼─ news-sentiment-analyst  news, 8-K events, cataly
 | `get_financial_statements` | yfinance | Income, balance, or cashflow; annual or quarterly; key rows; values in $M |
 | `get_key_metrics`, `compare_peers` | yfinance | Valuation ratios, margins, growth, leverage; peer medians |
 | `get_analyst_estimates` | yfinance | Targets, ratings, EPS/revenue estimates, recent up/downgrades |
-| `search_filings`, `fetch_filing_section` | SEC EDGAR | Ticker to CIK, recent 10-K/10-Q/8-K URLs, HTML-stripped sections ("Item 1A", "Item 7"); fetches from `sec.gov` only |
+| `search_filings`, `fetch_filing_section` | SEC EDGAR | Ticker to CIK, recent 10-K/10-Q/8-K URLs, HTML-stripped sections ("Item 1A", "Item 7"). Fetches from `https://*.sec.gov` on the default port only, and re-checks every redirect hop. Filing text comes back wrapped in untrusted-content markers |
 | `search_news` | Tavily | Falls back to Yahoo Finance headlines when `TAVILY_API_KEY` is unset |
 | `run_dcf` | analytics | Two-stage DCF, plus a 5x5 WACC x terminal-growth sensitivity grid |
 | `compute_risk_metrics` | analytics | Vol, beta vs SPY, Sharpe, Sortino, max drawdown, historical VaR/CVaR 95% |
@@ -101,7 +101,10 @@ from investment_agent import create_investment_agent
 
 agent = create_investment_agent(checkpointer=InMemorySaver())
 config = {"configurable": {"thread_id": "demo"}}
-result = agent.invoke({"messages": [{"role": "user", "content": "Deep dive on MSFT, 12-month horizon"}]}, config)
+result = agent.invoke(
+    {"messages": [{"role": "user", "content": "Deep dive on MSFT, 12-month horizon"}]},
+    config,
+)
 print(result["files"]["/reports/MSFT_research.md"]["content"])
 ```
 
@@ -146,6 +149,10 @@ uv run ruff check .
 - Yahoo Finance data is unofficial, can be delayed, and sometimes has gaps. The agent reports gaps instead of filling them.
 - EDGAR section extraction is heuristic. When an item cannot be found, the agent reads the full text instead.
 - DCF outputs depend entirely on the assumptions. Reports show the sensitivity grid and the terminal-value share for that reason.
-- Threads are held in memory (`InMemorySaver`), so this setup is for example use only.
+- Threads live only in process memory (`InMemorySaver`). They are never evicted, so memory grows with every thread until the server restarts, and a restart loses all threads. This is example-grade. For real use, switch to a persistent checkpointer with a retention policy.
+- Yahoo reports cash-flow and balance-sheet values in the company's reporting currency, which can differ from its trading currency (TSM reports in TWD, BABA in CNY).
+  - `get_key_metrics` returns both currencies and skips the FCF yield when they differ.
+  - `run_dcf` refuses to mix them unless you pass converted `base_fcf` and `net_debt` values.
+- `get_key_metrics` converts Yahoo's percent fields (`debtToEquity`, `dividendYield`) into multiples and fractions.
 
 *For research and educational purposes only. Not investment advice.*

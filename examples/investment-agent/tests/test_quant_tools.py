@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pandas as pd
 import pytest
 
 from investment_agent import analytics
@@ -21,7 +22,15 @@ def test_compute_risk_metrics(market: dict) -> None:
     r = _call(quant.compute_risk_metrics, ticker="ACME")
     m = r["metrics"]
     assert r["benchmark"] == "SPY"
-    for key in ("annualized_volatility", "beta_vs_benchmark", "sharpe_ratio", "sortino_ratio", "max_drawdown", "var_95_1d", "cvar_95_1d"):
+    for key in (
+        "annualized_volatility",
+        "beta_vs_benchmark",
+        "sharpe_ratio",
+        "sortino_ratio",
+        "max_drawdown",
+        "var_95_1d",
+        "cvar_95_1d",
+    ):
         assert m[key] is not None
     assert m["cvar_95_1d"] >= m["var_95_1d"] > 0
     assert 0 <= m["max_drawdown"] < 1
@@ -35,7 +44,10 @@ def test_compute_risk_metrics_beta_of_benchmark_is_one(market: dict) -> None:
 
 def test_compute_risk_metrics_short_history(market: dict) -> None:
     market["NEW"] = {"closes": make_closes("NEW", n=10)}
-    assert "overlapping observations" in _call(quant.compute_risk_metrics, ticker="NEW")["error"]
+    assert (
+        "overlapping observations"
+        in _call(quant.compute_risk_metrics, ticker="NEW")["error"]
+    )
 
 
 def test_technical_indicators(market: dict) -> None:
@@ -47,8 +59,16 @@ def test_technical_indicators(market: dict) -> None:
 
 
 def test_run_dcf_with_fetched_inputs(market: dict) -> None:
-    d = _call(quant.run_dcf, ticker="ACME", growth_rate=0.05, discount_rate=0.09, terminal_growth=0.025)
-    expected = analytics.dcf_valuation(2e9, 0.05, 0.09, 0.025, 5, 2e9, 1e9)["value_per_share"]
+    d = _call(
+        quant.run_dcf,
+        ticker="ACME",
+        growth_rate=0.05,
+        discount_rate=0.09,
+        terminal_growth=0.025,
+    )
+    expected = analytics.dcf_valuation(2e9, 0.05, 0.09, 0.025, 5, 2e9, 1e9)[
+        "value_per_share"
+    ]
     assert d["valuation"]["value_per_share"] == pytest.approx(expected, rel=1e-5)
     assert d["upside_vs_price"] == pytest.approx(expected / 50.0 - 1, rel=1e-5)
     grid = d["sensitivity"]
@@ -58,7 +78,17 @@ def test_run_dcf_with_fetched_inputs(market: dict) -> None:
 
 
 def test_run_dcf_with_overrides_needs_no_data(market: dict) -> None:
-    d = _call(quant.run_dcf, ticker="NODATA", base_fcf=100.0, net_debt=0.0, shares_outstanding=10.0, growth_rate=0.0, discount_rate=0.1, terminal_growth=0.0, years=1)
+    d = _call(
+        quant.run_dcf,
+        ticker="NODATA",
+        base_fcf=100.0,
+        net_debt=0.0,
+        shares_outstanding=10.0,
+        growth_rate=0.0,
+        discount_rate=0.1,
+        terminal_growth=0.0,
+        years=1,
+    )
     assert d["valuation"]["value_per_share"] == pytest.approx(100.0)
     assert d["upside_vs_price"] is None
 
@@ -69,7 +99,12 @@ def test_run_dcf_negative_fcf(market: dict) -> None:
 
 
 def test_run_dcf_invalid_rates(market: dict) -> None:
-    assert "must exceed" in _call(quant.run_dcf, ticker="ACME", discount_rate=0.02, terminal_growth=0.03)["error"]
+    assert (
+        "must exceed"
+        in _call(
+            quant.run_dcf, ticker="ACME", discount_rate=0.02, terminal_growth=0.03
+        )["error"]
+    )
 
 
 def test_analyze_portfolio(market: dict) -> None:
@@ -82,7 +117,10 @@ def test_analyze_portfolio(market: dict) -> None:
 
 
 def test_analyze_portfolio_rejects_shorts(market: dict) -> None:
-    assert "Negative weights" in _call(quant.analyze_portfolio, holdings={"ACME": 1, "PEER": -1})["error"]
+    assert (
+        "Negative weights"
+        in _call(quant.analyze_portfolio, holdings={"ACME": 1, "PEER": -1})["error"]
+    )
 
 
 def test_analyze_portfolio_limits(market: dict) -> None:
@@ -90,4 +128,54 @@ def test_analyze_portfolio_limits(market: dict) -> None:
 
 
 def test_analyze_portfolio_unknown_ticker(market: dict) -> None:
-    assert "No price history" in _call(quant.analyze_portfolio, holdings={"ACME": 1, "ZZZZ": 1})["error"]
+    assert (
+        "No price history"
+        in _call(quant.analyze_portfolio, holdings={"ACME": 1, "ZZZZ": 1})["error"]
+    )
+
+
+def _peak_on_day_zero(n: int = 60) -> pd.Series:
+    prices = [100.0, 50.0] + [50.0 + 0.1 * i for i in range(1, n - 1)]
+    return pd.Series(prices, index=pd.bdate_range("2025-01-02", periods=n))
+
+
+def test_risk_metrics_drawdown_counts_day_zero_peak(market: dict) -> None:
+    market["DROP"] = {"closes": _peak_on_day_zero()}
+    market["SPY"]["closes"] = (
+        market["SPY"]["closes"].iloc[:60].set_axis(_peak_on_day_zero().index)
+    )
+    m = _call(quant.compute_risk_metrics, ticker="DROP")["metrics"]
+    assert m["max_drawdown"] == pytest.approx(0.5)
+    assert m["current_drawdown"] == pytest.approx(
+        1 - _peak_on_day_zero().iloc[-1] / 100.0
+    )
+
+
+def test_portfolio_drawdown_counts_day_zero_peak(market: dict) -> None:
+    market["DROP"] = {"closes": _peak_on_day_zero()}
+    assert _call(quant.analyze_portfolio, holdings={"DROP": 1})[
+        "max_drawdown"
+    ] == pytest.approx(0.5)
+
+
+def test_analyze_portfolio_merges_duplicate_tickers(market: dict) -> None:
+    p = _call(quant.analyze_portfolio, holdings={"acme": 10, "ACME": 20, "peer": 30})
+    assert p["weights"] == {"ACME": 0.5, "PEER": 0.5}
+
+
+def test_run_dcf_rejects_currency_mismatch(market: dict) -> None:
+    market["ACME"]["info"]["financialCurrency"] = "TWD"
+    r = _call(quant.run_dcf, ticker="ACME")
+    assert "reports financials in TWD but trades in USD" in r["error"]
+
+
+def test_run_dcf_currency_mismatch_ok_with_converted_overrides(market: dict) -> None:
+    market["ACME"]["info"]["financialCurrency"] = "TWD"
+    d = _call(quant.run_dcf, ticker="ACME", base_fcf=2e9, net_debt=2e9)
+    assert d["currency"] == "USD" and d["financial_currency"] == "TWD"
+    assert d["upside_vs_price"] is not None
+
+
+def test_run_dcf_surfaces_currencies(market: dict) -> None:
+    d = _call(quant.run_dcf, ticker="ACME")
+    assert d["currency"] == "USD" and d["financial_currency"] == "USD"

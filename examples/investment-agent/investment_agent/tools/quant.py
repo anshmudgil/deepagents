@@ -35,7 +35,9 @@ def _aligned_returns(symbols: list[str], period: str) -> pd.DataFrame:
     Raises:
         ValueError: If fewer than `MIN_OBSERVATIONS` common observations exist.
     """
-    closes = pd.concat({s: market_data.fetch_closes(s, period=period) for s in symbols}, axis=1).dropna()
+    closes = pd.concat(
+        {s: market_data.fetch_closes(s, period=period) for s in symbols}, axis=1
+    ).dropna()
     returns = closes.pct_change().dropna()
     if len(returns) < MIN_OBSERVATIONS:
         msg = f"Only {len(returns)} overlapping observations for {symbols}; need {MIN_OBSERVATIONS}"
@@ -43,13 +45,15 @@ def _aligned_returns(symbols: list[str], period: str) -> pd.DataFrame:
     return returns
 
 
-def _risk_block(asset: list[float], bench: list[float], closes: list[float], rf: float) -> dict[str, JSONValue]:
+def _risk_block(
+    asset: list[float], bench: list[float], closes: list[float], rf: float
+) -> dict[str, JSONValue]:
     """Compute the standard risk metric set for one asset.
 
     Args:
         asset: Asset daily returns.
         bench: Benchmark daily returns (aligned).
-        closes: Asset closes used for drawdown.
+        closes: Asset price or wealth-index series (including the start) used for drawdown.
         rf: Annual risk-free rate.
 
     Returns:
@@ -92,8 +96,10 @@ def compute_risk_metrics(
     """
     symbol, bench = normalize_ticker(ticker), normalize_ticker(benchmark)
     rets = _aligned_returns([symbol, bench], period)
-    closes = (1 + rets).cumprod()
-    metrics = _risk_block(rets[symbol].tolist(), rets[bench].tolist(), closes[symbol].tolist(), risk_free_rate)
+    asset, bench_rets = rets[symbol].tolist(), rets[bench].tolist()
+    metrics = _risk_block(
+        asset, bench_rets, analytics.wealth_index(asset), risk_free_rate
+    )
     return {
         "ticker": symbol,
         "benchmark": bench,
@@ -102,8 +108,12 @@ def compute_risk_metrics(
         "metrics": metrics,  # type: ignore[dict-item]
         "benchmark_metrics": to_jsonable(
             {
-                "annualized_volatility": analytics.annualized_volatility(rets[bench].tolist()),
-                "max_drawdown": analytics.max_drawdown(closes[bench].tolist())["max_drawdown"],
+                "annualized_volatility": analytics.annualized_volatility(
+                    rets[bench].tolist()
+                ),
+                "max_drawdown": analytics.max_drawdown(
+                    analytics.wealth_index(bench_rets)
+                )["max_drawdown"],
             }
         ),
         "assumptions": f"Daily simple returns, 252 periods/yr, rf={risk_free_rate:.2%}, historical (non-parametric) VaR",
@@ -124,17 +134,25 @@ def technical_indicators(ticker: str) -> dict[str, JSONValue]:
     symbol = normalize_ticker(ticker)
     closes = market_data.fetch_closes(symbol, period="2y")
     snapshot = analytics.technical_snapshot(closes.tolist())
-    return {"ticker": symbol, "as_of": to_jsonable(closes.index[-1]), **to_jsonable(snapshot)}  # type: ignore[dict-item]
+    return {
+        "ticker": symbol,
+        "as_of": to_jsonable(closes.index[-1]),
+        **to_jsonable(snapshot),
+    }  # type: ignore[dict-item]
 
 
-def _dcf_inputs(symbol: str) -> dict[str, float | None]:
-    """Pull base FCF, net debt and share count for a DCF from yfinance.
+DCFInputs = dict[str, float | str | None]
+
+
+def _dcf_inputs(symbol: str) -> DCFInputs:
+    """Pull base FCF, net debt, share count, price and currencies from yfinance.
 
     Args:
         symbol: Ticker symbol.
 
     Returns:
-        Dict with `base_fcf`, `net_debt`, `shares`, `price` (values may be None).
+        Dict with `base_fcf`, `net_debt`, `shares`, `price` (values may be None),
+        and `currency` / `financial_currency`.
     """
     info = market_data.get_info(market_data.get_ticker(symbol))
 
@@ -148,7 +166,33 @@ def _dcf_inputs(symbol: str) -> dict[str, float | None]:
         "net_debt": debt - cash,
         "shares": num("sharesOutstanding"),
         "price": num("currentPrice") or num("regularMarketPrice"),
+        **market_data.currencies(info),
     }
+
+
+def _check_currency(
+    symbol: str, fetched: DCFInputs, base_fcf: float | None, net_debt: float | None
+) -> None:
+    """Reject a DCF that would mix reporting-currency cash flows with a trading-currency price.
+
+    Args:
+        symbol: Ticker symbol.
+        fetched: Fetched inputs including both currencies.
+        base_fcf: Caller override for FCF (`None` means the fetched value is used).
+        net_debt: Caller override for net debt (`None` means the fetched value is used).
+
+    Raises:
+        ValueError: If fetched FCF or net debt is in a different currency than the price.
+    """
+    trading, financial = fetched.get("currency"), fetched.get("financial_currency")
+    uses_fetched = base_fcf is None or net_debt is None
+    if uses_fetched and trading and financial and trading != financial:
+        msg = (
+            f"{symbol} reports financials in {financial} but trades in {trading}; per-share value and upside "
+            f"would be off by the FX rate. Convert FCF and net debt to {trading} and pass `base_fcf` and "
+            "`net_debt` explicitly."
+        )
+        raise ValueError(msg)
 
 
 def _resolve_dcf_inputs(
@@ -156,8 +200,10 @@ def _resolve_dcf_inputs(
     base_fcf: float | None,
     net_debt: float | None,
     shares_outstanding: float | None,
-) -> dict[str, float | None]:
+) -> DCFInputs:
     """Merge caller overrides with fetched DCF inputs.
+
+    Caller overrides are assumed to be in the trading currency.
 
     Args:
         symbol: Ticker symbol.
@@ -166,19 +212,27 @@ def _resolve_dcf_inputs(
         shares_outstanding: Override for share count.
 
     Returns:
-        Resolved inputs.
+        Resolved inputs, including both currencies.
 
     Raises:
-        ValueError: If no positive base FCF is available.
+        ValueError: If no positive base FCF is available or currencies conflict.
     """
-    fetched = _dcf_inputs(symbol) if None in (base_fcf, net_debt, shares_outstanding) else {"price": None}
-    resolved = {
+    fetched = _dcf_inputs(symbol)
+    _check_currency(symbol, fetched, base_fcf, net_debt)
+    resolved: DCFInputs = {
         "base_fcf": base_fcf if base_fcf is not None else fetched.get("base_fcf"),
-        "net_debt": net_debt if net_debt is not None else fetched.get("net_debt") or 0.0,
-        "shares": shares_outstanding if shares_outstanding is not None else fetched.get("shares"),
+        "net_debt": net_debt
+        if net_debt is not None
+        else fetched.get("net_debt") or 0.0,
+        "shares": shares_outstanding
+        if shares_outstanding is not None
+        else fetched.get("shares"),
         "price": fetched.get("price"),
+        "currency": fetched.get("currency"),
+        "financial_currency": fetched.get("financial_currency"),
     }
-    if not resolved["base_fcf"] or resolved["base_fcf"] <= 0:
+    fcf = resolved["base_fcf"]
+    if not isinstance(fcf, float | int) or fcf <= 0:
         msg = f"No positive free cash flow for {symbol}; a DCF is not meaningful - pass `base_fcf` or use multiples"
         raise ValueError(msg)
     return resolved
@@ -208,8 +262,8 @@ def run_dcf(
         discount_rate: WACC (0.09 = 9%).
         terminal_growth: Perpetual growth after the explicit period; must be below WACC.
         years: Explicit forecast years (1-15).
-        base_fcf: Optional override of trailing free cash flow (currency units, not millions).
-        net_debt: Optional override of debt minus cash (currency units).
+        base_fcf: Optional override of trailing free cash flow, in the trading currency (units, not millions). Required when the company reports in a different currency than it trades in.
+        net_debt: Optional override of debt minus cash, in the trading currency (units).
         shares_outstanding: Optional override of diluted share count.
 
     Returns:
@@ -220,7 +274,11 @@ def run_dcf(
     inputs = _resolve_dcf_inputs(symbol, base_fcf, net_debt, shares_outstanding)
     years = max(1, min(years, 15))
     args = (inputs["base_fcf"], growth_rate)
-    kwargs = {"years": years, "net_debt": inputs["net_debt"], "shares_outstanding": inputs["shares"]}
+    kwargs = {
+        "years": years,
+        "net_debt": inputs["net_debt"],
+        "shares_outstanding": inputs["shares"],
+    }
     result = analytics.dcf_valuation(*args, discount_rate, terminal_growth, **kwargs)  # type: ignore[arg-type]
     grid = analytics.dcf_sensitivity(
         *args,  # type: ignore[arg-type]
@@ -229,14 +287,26 @@ def run_dcf(
         **kwargs,  # type: ignore[arg-type]
     )
     per_share, price = result["value_per_share"], inputs["price"]
-    upside = per_share / price - 1.0 if isinstance(per_share, float) and price else None
+    upside = (
+        per_share / price - 1.0
+        if isinstance(per_share, float) and isinstance(price, float) and price
+        else None
+    )
     return to_jsonable(
         {
             "ticker": symbol,
-            "assumptions": {**inputs, "growth_rate": growth_rate, "discount_rate": discount_rate, "terminal_growth": terminal_growth, "years": years},
+            "assumptions": {
+                **inputs,
+                "growth_rate": growth_rate,
+                "discount_rate": discount_rate,
+                "terminal_growth": terminal_growth,
+                "years": years,
+            },
             "valuation": {k: v for k, v in result.items() if k != "projected_fcf"},
             "projected_fcf": result["projected_fcf"],
             "current_price": price,
+            "currency": inputs["currency"],
+            "financial_currency": inputs["financial_currency"],
             "upside_vs_price": upside,
             "sensitivity": grid,
             "caveat": "Model output is only as good as its assumptions; terminal value share above ~75% means the answer is mostly the terminal assumption.",
@@ -244,7 +314,9 @@ def run_dcf(
     )  # type: ignore[return-value]
 
 
-def _portfolio_payload(weights: dict[str, float], rets: pd.DataFrame) -> dict[str, JSONValue]:
+def _portfolio_payload(
+    weights: dict[str, float], rets: pd.DataFrame
+) -> dict[str, JSONValue]:
     """Assemble portfolio analytics from normalized weights and returns.
 
     Args:
@@ -264,16 +336,36 @@ def _portfolio_payload(weights: dict[str, float], rets: pd.DataFrame) -> dict[st
             "correlation": analytics.correlation_matrix(series),
             **risk,
             "sharpe_ratio": analytics.sharpe_ratio(port_rets, 0.04),
-            "max_drawdown": analytics.max_drawdown((1 + pd.Series(port_rets)).cumprod().tolist())["max_drawdown"],
+            "max_drawdown": analytics.max_drawdown(analytics.wealth_index(port_rets))[
+                "max_drawdown"
+            ],
             "var_95_1d": analytics.historical_var(port_rets),
             "cvar_95_1d": analytics.historical_cvar(port_rets),
         }
     )  # type: ignore[return-value]
 
 
+def _merge_holdings(holdings: dict[str, float]) -> dict[str, float]:
+    """Normalize tickers and sum positions that refer to the same symbol.
+
+    Args:
+        holdings: Raw ticker -> size mapping (e.g. `{"brk-b": 10, "BRK-B": 20}`).
+
+    Returns:
+        Mapping keyed by normalized ticker with sizes summed.
+    """
+    merged: dict[str, float] = {}
+    for ticker, size in holdings.items():
+        symbol = normalize_ticker(ticker)
+        merged[symbol] = merged.get(symbol, 0.0) + float(size)
+    return merged
+
+
 @tool(parse_docstring=True)
 @safe_tool
-def analyze_portfolio(holdings: dict[str, float], period: str = "1y") -> dict[str, JSONValue]:
+def analyze_portfolio(
+    holdings: dict[str, float], period: str = "1y"
+) -> dict[str, JSONValue]:
     """Analyze a long-only portfolio: weights, correlation, concentration (HHI), volatility and risk contribution.
 
     Args:
@@ -287,9 +379,13 @@ def analyze_portfolio(holdings: dict[str, float], period: str = "1y") -> dict[st
     """
     if not 1 <= len(holdings) <= 25:
         return {"error": "Provide between 1 and 25 holdings"}
-    weights = analytics.normalize_weights({normalize_ticker(k): v for k, v in holdings.items()})
+    weights = analytics.normalize_weights(_merge_holdings(holdings))
     rets = _aligned_returns(list(weights), period)
-    return {"period": period, "observations": len(rets), **_portfolio_payload(weights, rets)}  # type: ignore[dict-item]
+    return {
+        "period": period,
+        "observations": len(rets),
+        **_portfolio_payload(weights, rets),
+    }  # type: ignore[dict-item]
 
 
 QUANT_TOOLS = [compute_risk_metrics, technical_indicators, run_dcf, analyze_portfolio]

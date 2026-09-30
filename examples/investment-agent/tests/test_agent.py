@@ -15,7 +15,13 @@ from investment_agent import SUBAGENT_NAMES, create_investment_agent, prompts
 from investment_agent import agent as agent_module
 from investment_agent.subagents import SUBAGENT_TOOLS, build_subagents
 
-EXPECTED_NAMES = ("fundamental-analyst", "quant-analyst", "news-sentiment-analyst", "risk-manager", "portfolio-strategist")
+EXPECTED_NAMES = (
+    "fundamental-analyst",
+    "quant-analyst",
+    "news-sentiment-analyst",
+    "risk-manager",
+    "portfolio-strategist",
+)
 
 
 def _tool_names(graph: object) -> set[str]:
@@ -40,7 +46,9 @@ def test_subagent_names_match_contract() -> None:
     assert [s["name"] for s in build_subagents("2026-09-30")] == list(EXPECTED_NAMES)
 
 
-def test_builds_with_fake_model_and_exposes_planning_and_delegation(scripted_model: Callable) -> None:
+def test_builds_with_fake_model_and_exposes_planning_and_delegation(
+    scripted_model: Callable,
+) -> None:
     graph = create_investment_agent(model=scripted_model([]))
     names = _tool_names(graph)
     assert {"write_todos", "task", "get_quote", "write_file", "read_file"} <= names
@@ -59,20 +67,32 @@ def test_orchestrator_is_least_privilege(spy: dict, scripted_model: Callable) ->
 def test_subagent_tool_scoping(spy: dict, scripted_model: Callable) -> None:
     create_investment_agent(model=scripted_model([]))
     tools = {s["name"]: {t.name for t in s["tools"]} for s in spy["subagents"]}  # type: ignore[attr-defined]
-    assert tools == {name: {t.name for t in SUBAGENT_TOOLS[name]} for name in EXPECTED_NAMES}
-    assert "search_news" in tools["news-sentiment-analyst"] and "run_dcf" not in tools["news-sentiment-analyst"]
-    assert "run_dcf" in tools["fundamental-analyst"] and "fetch_filing_section" in tools["risk-manager"]
+    assert tools == {
+        name: {t.name for t in SUBAGENT_TOOLS[name]} for name in EXPECTED_NAMES
+    }
+    assert (
+        "search_news" in tools["news-sentiment-analyst"]
+        and "run_dcf" not in tools["news-sentiment-analyst"]
+    )
+    assert (
+        "run_dcf" in tools["fundamental-analyst"]
+        and "fetch_filing_section" in tools["risk-manager"]
+    )
     assert "analyze_portfolio" in tools["portfolio-strategist"]
 
 
-def test_explicit_model_is_inherited_by_all_subagents(spy: dict, scripted_model: Callable) -> None:
+def test_explicit_model_is_inherited_by_all_subagents(
+    spy: dict, scripted_model: Callable
+) -> None:
     model = scripted_model([])
     create_investment_agent(model=model)
     assert spy["model"] is model
     assert all("model" not in s for s in spy["subagents"])  # type: ignore[attr-defined]
 
 
-def test_default_models_and_env_override(spy: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_models_and_env_override(
+    spy: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("INVESTMENT_AGENT_MODEL", raising=False)
     create_investment_agent()
     assert spy["model"] == "anthropic:claude-sonnet-5-5"
@@ -128,12 +148,22 @@ def test_orchestrator_prompt_enforces_research_standards() -> None:
 @pytest.mark.parametrize("spec", build_subagents("2026-09-30"), ids=lambda s: s["name"])
 def test_subagent_prompts_follow_contract(spec: dict) -> None:
     prompt = spec["system_prompt"]
-    for required in ("## Responsibility", "## Not responsible for", "## Output contract", "**Confidence:**", "Data gaps", "Research only", "2026-09-30"):
+    for required in (
+        "## Responsibility",
+        "## Not responsible for",
+        "## Output contract",
+        "**Confidence:**",
+        "Data gaps",
+        "Research only",
+        "2026-09-30",
+    ):
         assert required in prompt, (spec["name"], required)
     assert '{"error": ...}' in prompt and "{date}" not in prompt
     # Every tool a prompt tells the specialist to call must actually be granted.
     granted = {t.name for t in spec["tools"]}
-    mentioned = set(re.findall(r"`([a-z_]+)`", prompt)) & {t.name for tools in SUBAGENT_TOOLS.values() for t in tools}
+    mentioned = set(re.findall(r"`([a-z_]+)`", prompt)) & {
+        t.name for tools in SUBAGENT_TOOLS.values() for t in tools
+    }
     assert mentioned <= granted, (spec["name"], mentioned - granted)
 
 
@@ -148,35 +178,85 @@ def test_house_style_memory_is_loaded(tmp_path: Path) -> None:
 
 
 def _script() -> list[AIMessage]:
-    todos = [{"content": "Delegate quant analysis", "status": "in_progress"}, {"content": "Write report", "status": "pending"}]
+    todos = [
+        {"content": "Delegate quant analysis", "status": "in_progress"},
+        {"content": "Write report", "status": "pending"},
+    ]
     return [
         AIMessage(
             content="",
             tool_calls=[
                 {"name": "write_todos", "args": {"todos": todos}, "id": "c1"},
-                {"name": "task", "args": {"subagent_type": "quant-analyst", "description": "Analyze ACME trend. Notes: /research/ACME/quant.md"}, "id": "c2"},
+                {
+                    "name": "task",
+                    "args": {
+                        "subagent_type": "quant-analyst",
+                        "description": "Analyze ACME trend. Notes: /research/ACME/quant.md",
+                    },
+                    "id": "c2",
+                },
             ],
         ),
-        AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"file_path": "/research/ACME/quant.md", "content": "uptrend"}, "id": "s1"}]),
-        AIMessage(content="### Quant analyst: ACME\n**Verdict:** uptrend\n**Confidence:** Medium"),
-        AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"file_path": "/reports/ACME_research.md", "content": "# ACME\n" + prompts.DISCLAIMER}, "id": "c3"}]),
-        AIMessage(content="Report saved to /reports/ACME_research.md. Research only, not investment advice."),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "write_file",
+                    "args": {
+                        "file_path": "/research/ACME/quant.md",
+                        "content": "uptrend",
+                    },
+                    "id": "s1",
+                }
+            ],
+        ),
+        AIMessage(
+            content="### Quant analyst: ACME\n**Verdict:** uptrend\n**Confidence:** Medium"
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "write_file",
+                    "args": {
+                        "file_path": "/reports/ACME_research.md",
+                        "content": "# ACME\n" + prompts.DISCLAIMER,
+                    },
+                    "id": "c3",
+                }
+            ],
+        ),
+        AIMessage(
+            content="Report saved to /reports/ACME_research.md. Research only, not investment advice."
+        ),
     ]
 
 
-def test_end_to_end_delegation_files_and_stream_attribution(scripted_model: Callable) -> None:
-    graph = create_investment_agent(model=scripted_model(_script()), checkpointer=InMemorySaver())
+def test_end_to_end_delegation_files_and_stream_attribution(
+    scripted_model: Callable,
+) -> None:
+    graph = create_investment_agent(
+        model=scripted_model(_script()), checkpointer=InMemorySaver()
+    )
     config = {"configurable": {"thread_id": "t1"}}
     subagent_names: set[str] = set()
     for namespace, mode, payload in graph.stream(
-        {"messages": [HumanMessage(content="Research ACME")]}, config, stream_mode=["messages", "updates"], subgraphs=True
+        {"messages": [HumanMessage(content="Research ACME")]},
+        config,
+        stream_mode=["messages", "updates"],
+        subgraphs=True,
     ):
         if mode == "messages" and namespace:
             subagent_names.add(payload[1].get("lc_agent_name"))
     assert subagent_names == {"quant-analyst"}
 
     state = graph.get_state(config).values
-    assert set(state["files"]) == {"/research/ACME/quant.md", "/reports/ACME_research.md"}
-    assert state["files"]["/reports/ACME_research.md"]["content"].endswith(prompts.DISCLAIMER)
+    assert set(state["files"]) == {
+        "/research/ACME/quant.md",
+        "/reports/ACME_research.md",
+    }
+    assert state["files"]["/reports/ACME_research.md"]["content"].endswith(
+        prompts.DISCLAIMER
+    )
     assert [t["status"] for t in state["todos"]] == ["in_progress", "pending"]
     assert "Research only" in state["messages"][-1].content

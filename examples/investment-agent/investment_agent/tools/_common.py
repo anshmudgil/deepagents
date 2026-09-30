@@ -83,7 +83,11 @@ def to_jsonable(value: object) -> JSONValue:
     if isinstance(value, list | tuple):
         return [to_jsonable(v) for v in value]
     if isinstance(value, pd.Timestamp | datetime | date):
-        return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+        return (
+            value.date().isoformat()
+            if isinstance(value, datetime)
+            else value.isoformat()
+        )
     if isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, float):
@@ -107,7 +111,9 @@ def column_label(col: object) -> str:
     return str(col)
 
 
-def frame_to_records(df: pd.DataFrame | None, max_rows: int = 10) -> list[dict[str, JSONValue]]:
+def frame_to_records(
+    df: pd.DataFrame | None, max_rows: int = 10
+) -> list[dict[str, JSONValue]]:
     """Convert a row-oriented DataFrame into a list of JSON-safe records.
 
     Args:
@@ -152,7 +158,9 @@ def statement_to_dict(
     for row in selected:
         series = df.loc[row, cols]
         divisor = 1.0 if "EPS" in str(row) else scale
-        out[str(row)] = {column_label(c): to_jsonable(_scaled(series[c], divisor)) for c in cols}
+        out[str(row)] = {
+            column_label(c): to_jsonable(_scaled(series[c], divisor)) for c in cols
+        }
     return out
 
 

@@ -15,7 +15,9 @@ from pydantic import Field
 from investment_agent.tools import filings, market_data
 
 
-def make_closes(symbol: str, n: int = 520, drift: float = 0.0005, vol: float = 0.015) -> pd.Series:
+def make_closes(
+    symbol: str, n: int = 520, drift: float = 0.0005, vol: float = 0.015
+) -> pd.Series:
     """Deterministic geometric random-walk closes seeded by the symbol."""
     rng = np.random.default_rng(sum(ord(c) for c in symbol))
     rets = rng.normal(drift, vol, n)
@@ -25,10 +27,16 @@ def make_closes(symbol: str, n: int = 520, drift: float = 0.0005, vol: float = 0
 
 
 def income_statement() -> pd.DataFrame:
-    cols = pd.to_datetime(["2025-12-31", "2024-12-31", "2023-12-31", "2022-12-31", "2021-12-31"])
+    cols = pd.to_datetime(
+        ["2025-12-31", "2024-12-31", "2023-12-31", "2022-12-31", "2021-12-31"]
+    )
     return pd.DataFrame(
         {
-            c: {"Total Revenue": 1_000e6 * (1.1**-i), "Net Income": 200e6 * (1.1**-i), "Diluted EPS": 2.5 - 0.2 * i}
+            c: {
+                "Total Revenue": 1_000e6 * (1.1**-i),
+                "Net Income": 200e6 * (1.1**-i),
+                "Diluted EPS": 2.5 - 0.2 * i,
+            }
             for i, c in enumerate(cols)
         }
     )
@@ -65,7 +73,9 @@ class FakeTicker:
         self.symbol = symbol
         self._data = registry.get(symbol, {})
 
-    def history(self, period: str = "1y", interval: str = "1d", auto_adjust: bool = True) -> pd.DataFrame:
+    def history(
+        self, period: str = "1y", interval: str = "1d", auto_adjust: bool = True
+    ) -> pd.DataFrame:
         closes = self._data.get("closes")
         if closes is None:
             return pd.DataFrame()
@@ -92,8 +102,14 @@ def market(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, object]]:
             "quarterly_income_stmt": income_statement(),
             "news": [],
         },
-        "PEER": {"closes": make_closes("PEER"), "info": {**DEFAULT_INFO, "shortName": "Peer", "trailingPE": 15.0}},
-        "SPY": {"closes": make_closes("SPY", drift=0.0003, vol=0.01), "info": {"longName": "SPDR S&P 500"}},
+        "PEER": {
+            "closes": make_closes("PEER"),
+            "info": {**DEFAULT_INFO, "shortName": "Peer", "trailingPE": 15.0},
+        },
+        "SPY": {
+            "closes": make_closes("SPY", drift=0.0003, vol=0.01),
+            "info": {"longName": "SPDR S&P 500"},
+        },
     }
 
     def fake_get_ticker(symbol: str) -> FakeTicker:

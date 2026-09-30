@@ -89,7 +89,9 @@ def simple_returns(prices: Sequence[float]) -> list[float]:
     return (arr[1:] / arr[:-1] - 1.0).tolist()
 
 
-def annualized_return(prices: Sequence[float], periods_per_year: int = TRADING_DAYS) -> float:
+def annualized_return(
+    prices: Sequence[float], periods_per_year: int = TRADING_DAYS
+) -> float:
     """Compute the compound annual growth rate implied by a price series.
 
     Args:
@@ -104,7 +106,9 @@ def annualized_return(prices: Sequence[float], periods_per_year: int = TRADING_D
     return float((arr[-1] / arr[0]) ** (1.0 / years) - 1.0)
 
 
-def annualized_volatility(returns: Sequence[float], periods_per_year: int = TRADING_DAYS) -> float:
+def annualized_volatility(
+    returns: Sequence[float], periods_per_year: int = TRADING_DAYS
+) -> float:
     """Compute annualized volatility (sample standard deviation).
 
     Args:
@@ -168,7 +172,9 @@ def sortino_ratio(
     return float(np.mean(excess) / dd * math.sqrt(periods_per_year))
 
 
-def beta(asset_returns: Sequence[float], benchmark_returns: Sequence[float]) -> float | None:
+def beta(
+    asset_returns: Sequence[float], benchmark_returns: Sequence[float]
+) -> float | None:
     """Compute beta of an asset versus a benchmark.
 
     Args:
@@ -266,7 +272,25 @@ def _validated_tail_inputs(returns: Sequence[float], confidence: float) -> np.nd
     return _as_array(returns, name="returns", min_len=2)
 
 
-def price_summary(prices: Sequence[float], periods_per_year: int = TRADING_DAYS) -> dict[str, float]:
+def wealth_index(returns: Sequence[float]) -> list[float]:
+    """Rebuild a growth-of-1 series from returns, including the starting point.
+
+    The leading 1.0 matters: without it a peak on the first day is lost and
+    drawdowns measured from the start are understated.
+
+    Args:
+        returns: Periodic simple returns.
+
+    Returns:
+        `len(returns) + 1` values starting at 1.0.
+    """
+    arr = _as_array(returns, name="returns")
+    return [1.0, *np.cumprod(1.0 + arr).tolist()]
+
+
+def price_summary(
+    prices: Sequence[float], periods_per_year: int = TRADING_DAYS
+) -> dict[str, float]:
     """Summarize a price series without dumping raw data.
 
     Args:
@@ -460,7 +484,9 @@ def technical_snapshot(prices: Sequence[float]) -> dict[str, float | str | None]
         "macd_histogram": macd_vals.get("histogram"),
         "high_52w": float(window.max()),
         "low_52w": float(window.min()),
-        "range_position_52w": range_position(last, float(window.min()), float(window.max())),
+        "range_position_52w": range_position(
+            last, float(window.min()), float(window.max())
+        ),
         "trend": _trend_label(last, sma50, sma200),
     }
 
@@ -528,7 +554,9 @@ def dcf_valuation(
         raise ValueError(msg)
     fcfs = [base_fcf * (1.0 + growth_rate) ** t for t in range(1, years + 1)]
     pv_fcfs = [f / (1.0 + discount_rate) ** t for t, f in enumerate(fcfs, start=1)]
-    terminal_value = fcfs[-1] * (1.0 + terminal_growth) / (discount_rate - terminal_growth)
+    terminal_value = (
+        fcfs[-1] * (1.0 + terminal_growth) / (discount_rate - terminal_growth)
+    )
     pv_terminal = terminal_value / (1.0 + discount_rate) ** years
     ev = sum(pv_fcfs) + pv_terminal
     equity = ev - net_debt
@@ -579,8 +607,12 @@ def dcf_sensitivity(
             if wacc <= tg:
                 row.append(None)
                 continue
-            res = dcf_valuation(base_fcf, growth_rate, wacc, tg, years, net_debt, shares_outstanding)
-            row.append(res["value_per_share"] if shares_outstanding else res["equity_value"])  # type: ignore[arg-type]
+            res = dcf_valuation(
+                base_fcf, growth_rate, wacc, tg, years, net_debt, shares_outstanding
+            )
+            row.append(
+                res["value_per_share"] if shares_outstanding else res["equity_value"]
+            )  # type: ignore[arg-type]
         table.append(row)
     return {
         "rows": list(discount_rates),
@@ -650,7 +682,9 @@ def herfindahl_index(weights: Mapping[str, float]) -> dict[str, float]:
     return {"hhi": hhi, "effective_positions": 1.0 / hhi, "max_weight": float(w.max())}
 
 
-def _returns_matrix(returns: Mapping[str, Sequence[float]], assets: Sequence[str]) -> np.ndarray:
+def _returns_matrix(
+    returns: Mapping[str, Sequence[float]], assets: Sequence[str]
+) -> np.ndarray:
     """Stack aligned return series into a (T x N) matrix.
 
     Args:
@@ -674,7 +708,9 @@ def _returns_matrix(returns: Mapping[str, Sequence[float]], assets: Sequence[str
     return np.column_stack(cols)
 
 
-def correlation_matrix(returns: Mapping[str, Sequence[float]]) -> dict[str, dict[str, float]]:
+def correlation_matrix(
+    returns: Mapping[str, Sequence[float]],
+) -> dict[str, dict[str, float]]:
     """Compute the pairwise correlation matrix of aligned return series.
 
     Args:
@@ -688,7 +724,10 @@ def correlation_matrix(returns: Mapping[str, Sequence[float]]) -> dict[str, dict
     if len(assets) == 1:
         return {assets[0]: {assets[0]: 1.0}}
     corr = np.corrcoef(mat, rowvar=False)
-    return {a: {b: float(corr[i, j]) for j, b in enumerate(assets)} for i, a in enumerate(assets)}
+    return {
+        a: {b: float(corr[i, j]) for j, b in enumerate(assets)}
+        for i, a in enumerate(assets)
+    }
 
 
 def portfolio_risk(
@@ -723,7 +762,9 @@ def portfolio_risk(
     weighted_avg = float(w @ asset_vols)
     return {
         "annualized_volatility": port_vol,
-        "risk_contribution": {a: float(c) for a, c in zip(assets, contrib, strict=True)},
+        "risk_contribution": {
+            a: float(c) for a, c in zip(assets, contrib, strict=True)
+        },
         "weighted_avg_volatility": weighted_avg,
         "diversification_ratio": weighted_avg / port_vol if port_vol > 0 else None,
     }

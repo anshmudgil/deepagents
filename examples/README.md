@@ -62,6 +62,7 @@ Production agents powered by the LangChain stack:
 |---|---|
 | [**Deep Research**](deep_research/) | Multi-step web research with Tavily, parallel sub-agents, and strategic reflection |
 | [**MCP Docs Agent**](deploy-mcp-docs-agent/) | Docs research agent using MCP tools over LangChain documentation |
+| [**Investment Research Agent**](investment-agent/) | Equity and portfolio research with five specialist subagents, market data, SEC filings, DCF and risk analytics, plus a streaming web UI |
 
 ### Coding
 

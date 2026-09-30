@@ -70,7 +70,7 @@ def load_house_style(path: Path = HOUSE_STYLE_PATH) -> str:
     """
     if not path.is_file():
         return ""
-    return f"\n\n<memory source=\"AGENTS.md\">\n{path.read_text(encoding='utf-8').strip()}\n</memory>"
+    return f'\n\n<memory source="AGENTS.md">\n{path.read_text(encoding="utf-8").strip()}\n</memory>'
 
 
 def build_system_prompt(today: str | None = None) -> str:
@@ -82,7 +82,10 @@ def build_system_prompt(today: str | None = None) -> str:
     Returns:
         The full system prompt, including house style memory.
     """
-    return ORCHESTRATOR_PROMPT.format(date=today or date.today().isoformat()) + load_house_style()
+    return (
+        ORCHESTRATOR_PROMPT.format(date=today or date.today().isoformat())
+        + load_house_style()
+    )
 
 
 def create_investment_agent(
