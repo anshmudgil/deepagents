@@ -114,7 +114,10 @@
       </div>
 
       <div class="composer-wrap">
-        <p class="run-status" id="run-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div class="run-bar">
+          <p class="run-status" id="run-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <span class="run-timer num" id="run-timer" aria-hidden="true"></span>
+        </div>
         <form class="composer" id="composer" novalidate>
           <label class="sr-only" for="composer-input">Research question</label>
           <textarea id="composer-input" rows="1" placeholder="Ask about a ticker, a comparison, or your portfolio…"

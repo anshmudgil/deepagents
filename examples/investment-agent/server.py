@@ -56,7 +56,9 @@ SSE_HEADERS = {
     "Connection": "keep-alive",
 }
 RUN_FAILED_MSG = "The agent run failed. See server logs for details."
-AGENT_UNAVAILABLE_MSG = "The agent is unavailable. Check the server configuration (model and API keys)."
+AGENT_UNAVAILABLE_MSG = (
+    "The agent is unavailable. Check the server configuration (model and API keys)."
+)
 
 ThreadId = Annotated[str, PathParam(pattern=THREAD_ID_PATTERN)]
 StreamChunk = tuple[tuple[str, ...], str, object]
@@ -138,7 +140,9 @@ def file_content(data: object) -> str:
 
 def as_messages(value: object) -> list[BaseMessage]:
     """Coerce a node update's `messages` value into a list of messages."""
-    items = value if isinstance(value, Sequence) and not isinstance(value, str) else [value]
+    items = (
+        value if isinstance(value, Sequence) and not isinstance(value, str) else [value]
+    )
     return [item for item in items if isinstance(item, BaseMessage)]
 
 
@@ -147,7 +151,10 @@ def normalize_todos(value: object) -> list[JsonDict]:
     if not isinstance(value, Sequence):
         return []
     return [
-        {"content": str(todo.get("content", "")), "status": str(todo.get("status", "pending"))}
+        {
+            "content": str(todo.get("content", "")),
+            "status": str(todo.get("status", "pending")),
+        }
         for todo in value
         if isinstance(todo, Mapping)
     ]
@@ -170,7 +177,11 @@ def thread_config(thread_id: str) -> JsonDict:
 class AgentHolder:
     """Holds the agent, building it lazily so importing the server needs no API key."""
 
-    def __init__(self, agent: AgentGraph | None = None, factory: Callable[[], AgentGraph] | None = None) -> None:
+    def __init__(
+        self,
+        agent: AgentGraph | None = None,
+        factory: Callable[[], AgentGraph] | None = None,
+    ) -> None:
         """Create the holder.
 
         Args:
@@ -216,7 +227,9 @@ class RunStreamer:
         self.paths = set(paths)
         self.agents: dict[str, str] = {}
 
-    def agent_for(self, namespace: tuple[str, ...], metadata: Mapping[str, object] | None = None) -> str:
+    def agent_for(
+        self, namespace: tuple[str, ...], metadata: Mapping[str, object] | None = None
+    ) -> str:
         """Resolve the display agent name for a stream namespace.
 
         The root namespace `()` is the orchestrator. A subagent runs inside the
@@ -240,7 +253,9 @@ class RunStreamer:
             return self.on_updates(namespace, payload)
         return []
 
-    def on_message(self, namespace: tuple[str, ...], message: object, metadata: object) -> list[str]:
+    def on_message(
+        self, namespace: tuple[str, ...], message: object, metadata: object
+    ) -> list[str]:
         """Emit a `token` event for streamed assistant text."""
         meta = metadata if isinstance(metadata, Mapping) else {}
         agent = self.agent_for(namespace, meta)
@@ -249,7 +264,9 @@ class RunStreamer:
         text = message_text(message)
         return [sse("token", {"text": text, "agent": agent})] if text else []
 
-    def on_updates(self, namespace: tuple[str, ...], updates: Mapping[str, object]) -> list[str]:
+    def on_updates(
+        self, namespace: tuple[str, ...], updates: Mapping[str, object]
+    ) -> list[str]:
         """Emit tool, todo and file events from per-node state updates."""
         agent = self.agent_for(namespace)
         events: list[str] = []
@@ -267,12 +284,30 @@ class RunStreamer:
         for message in as_messages(value):
             if isinstance(message, AIMessage):
                 events.extend(
-                    sse("tool_start", {"id": call.get("id") or "", "name": call["name"], "args": call.get("args", {}), "agent": agent})
+                    sse(
+                        "tool_start",
+                        {
+                            "id": call.get("id") or "",
+                            "name": call["name"],
+                            "args": call.get("args", {}),
+                            "agent": agent,
+                        },
+                    )
                     for call in message.tool_calls
                 )
             elif isinstance(message, ToolMessage):
                 output = truncate(message_text(message))
-                events.append(sse("tool_end", {"id": message.tool_call_id, "name": message.name or "", "output": output, "agent": agent}))
+                events.append(
+                    sse(
+                        "tool_end",
+                        {
+                            "id": message.tool_call_id,
+                            "name": message.name or "",
+                            "output": output,
+                            "agent": agent,
+                        },
+                    )
+                )
         return events
 
     def state_events(self, update: Mapping[str, object]) -> list[str]:
@@ -291,7 +326,9 @@ class RunStreamer:
         return events
 
 
-async def stream_run(holder: AgentHolder, thread_id: str, message: str) -> AsyncIterator[str]:
+async def stream_run(
+    holder: AgentHolder, thread_id: str, message: str
+) -> AsyncIterator[str]:
     """Yield SSE frames for one agent run; always ends with `done`."""
     try:
         agent = await holder.get()
@@ -305,7 +342,9 @@ async def stream_run(holder: AgentHolder, thread_id: str, message: str) -> Async
         values = state_values(await agent.aget_state(config))
         streamer = RunStreamer(set(dict(values.get("files") or {})))
         graph_input: JsonDict = {"messages": [{"role": "user", "content": message}]}
-        async for chunk in agent.astream(graph_input, config, stream_mode=["messages", "updates"], subgraphs=True):
+        async for chunk in agent.astream(
+            graph_input, config, stream_mode=["messages", "updates"], subgraphs=True
+        ):
             for frame in streamer.on_chunk(chunk):
                 yield frame
     except Exception:
@@ -342,7 +381,11 @@ def serialize_messages(values: Mapping[str, object]) -> list[JsonDict]:
 class QuoteCache:
     """Tiny TTL cache for quote payloads (including negative `None` results)."""
 
-    def __init__(self, ttl: float = QUOTE_TTL_SECONDS, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        ttl: float = QUOTE_TTL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         """Create a cache whose entries expire after `ttl` seconds."""
         self.ttl = ttl
         self.clock = clock
@@ -415,7 +458,9 @@ async def get_quote(cache: QuoteCache, raw_ticker: str) -> JsonDict:
             quote = await run_in_threadpool(fetch_quote, symbol)
         except Exception as exc:
             logger.exception("Quote lookup failed for %s", symbol)
-            raise HTTPException(status_code=502, detail="Quote provider unavailable.") from exc
+            raise HTTPException(
+                status_code=502, detail="Quote provider unavailable."
+            ) from exc
         cache.put(symbol, quote)
     if quote is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticker: {symbol}")
@@ -446,13 +491,25 @@ def register_api(app: FastAPI, holder: AgentHolder, cache: QuoteCache) -> None:
     @app.post("/api/threads/{thread_id}/runs/stream")
     async def run_stream(thread_id: ThreadId, body: RunRequest) -> StreamingResponse:
         if thread_id in busy:
-            raise HTTPException(status_code=409, detail="A run is already in progress for this thread.")
-        return StreamingResponse(_guarded(busy, thread_id, stream_run(holder, thread_id, body.message)), media_type="text/event-stream", headers=SSE_HEADERS)
+            raise HTTPException(
+                status_code=409, detail="A run is already in progress for this thread."
+            )
+        return StreamingResponse(
+            _guarded(busy, thread_id, stream_run(holder, thread_id, body.message)),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
 
     @app.get("/api/threads/{thread_id}/files")
     async def thread_files(thread_id: ThreadId) -> dict[str, dict[str, str]]:
         files = (await read_values(holder, thread_id)).get("files") or {}
-        return {"files": {str(path): file_content(data) for path, data in dict(files).items() if data is not None}}
+        return {
+            "files": {
+                str(path): file_content(data)
+                for path, data in dict(files).items()
+                if data is not None
+            }
+        }
 
     @app.get("/api/threads/{thread_id}/messages")
     async def thread_messages(thread_id: ThreadId) -> dict[str, list[JsonDict]]:
@@ -463,7 +520,9 @@ def register_api(app: FastAPI, holder: AgentHolder, cache: QuoteCache) -> None:
         return await get_quote(cache, ticker)
 
 
-async def _guarded(busy: set[str], thread_id: str, frames: AsyncIterator[str]) -> AsyncIterator[str]:
+async def _guarded(
+    busy: set[str], thread_id: str, frames: AsyncIterator[str]
+) -> AsyncIterator[str]:
     """Mark `thread_id` busy while `frames` streams, so runs on a thread never overlap."""
     busy.add(thread_id)
     try:
@@ -481,7 +540,10 @@ def mount_web(app: FastAPI, web_dir: Path) -> None:
 
     @app.get("/", include_in_schema=False)
     async def web_missing() -> JSONResponse:
-        return JSONResponse({"detail": "Web UI not found; the API is available under /api."}, status_code=404)
+        return JSONResponse(
+            {"detail": "Web UI not found; the API is available under /api."},
+            status_code=404,
+        )
 
 
 def create_app(
@@ -501,7 +563,11 @@ def create_app(
     Returns:
         The configured application.
     """
-    app = FastAPI(title="Investment Research Agent", version="0.1.0", description="Research only. Not investment advice.")
+    app = FastAPI(
+        title="Investment Research Agent",
+        version="0.1.0",
+        description="Research only. Not investment advice.",
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
