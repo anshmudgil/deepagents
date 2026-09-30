@@ -1,5 +1,5 @@
 /* Meridian — Investment Research Agent (vanilla SPA, no build step).
-   API: docs/CONTRACT.md. All Markdown is sanitised with DOMPurify; all other
+   API: docs/CONTRACT.md. All Markdown is sanitized with DOMPurify; all other
    untrusted text is written with textContent. */
 (() => {
   'use strict';
@@ -288,6 +288,7 @@
   function setMobileView(view) {
     dom.body.dataset.mview = view;
     markSelected(dom.mobileTabs, (t) => t.dataset.mview === view);
+    if (view === 'chat' && stick) requestAnimationFrame(scrollToBottom);
     if (view === 'plan' || view === 'activity' || view === 'reports') {
       markSelected(dom.sideTabs, (t) => t.dataset.tab === view);
       ['plan', 'activity', 'reports'].forEach((n) => { $(`#panel-${n}`).hidden = n !== view; });
@@ -389,7 +390,7 @@
     const list = el('ul', { class: 'tool-list' });
     const notesP = el('p');
     const notes = el('details', { class: 'notes', hidden: true }, el('summary', { text: 'Working notes' }), notesP);
-    const head = el('div', { class: 'agent-head' }, agentBadge(key), el('h3', { class: 'a-name', text: info.label, style: null }), live, count);
+    const head = el('div', { class: 'agent-head' }, agentBadge(key), el('h2', { class: 'a-name', text: info.label }), live, count);
     const section = el('section', { class: 'agent-group', dataset: { agent: agentKey(key) }, 'aria-label': `${info.label} activity` }, head, notes, list);
     dom.activity.append(section);
     dom.activityEmpty.hidden = true;
@@ -432,7 +433,7 @@
     const g = ensureGroup(agent);
     const st = el('span', { class: 'st' }, ...statusIcon('running'));
     const meta = el('span', { class: 't-meta' }, el('span', { class: 't-dur', text: '' }), svg(ICON.chev, 'chev'));
-    const out = el('pre', { text: 'Waiting for output…' });
+    const out = el('pre', { tabindex: '0', 'aria-label': 'Tool output', text: 'Waiting for output…' });
     const details = el('details', { class: 'tool', dataset: { status: 'running' } },
       el('summary', null, st,
         el('span', { class: 't-main' },
@@ -440,8 +441,8 @@
           el('span', { class: 't-sub', text: summarizeArgs(d.name, d.args) })),
         meta),
       el('div', { class: 'tool-body' },
-        el('h4', { text: 'Input' }), el('pre', { text: pretty(d.args ?? {}) }),
-        el('h4', { text: 'Output' }), out));
+        el('h3', { text: 'Input' }), el('pre', { tabindex: '0', 'aria-label': 'Tool input', text: pretty(d.args ?? {}) }),
+        el('h3', { text: 'Output' }), out));
     const li = el('li', null, details);
     g.list.append(li);
     revealInActivity(li);

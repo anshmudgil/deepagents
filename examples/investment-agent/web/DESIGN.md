@@ -15,7 +15,7 @@ The full lockup is "Meridian — Investment Research Agent". Space-constrained s
 
 | Persona | Context | What they need from the screen | What breaks trust |
 |---|---|---|---|
-| **Self-directed investor** ("Priya", 38, manages her own ISA/401k, checks in weekly) | Evening sessions, laptop or phone. Holds 5–15 positions and ETFs. | A plain-English verdict with the evidence *next to* it. She must be able to see what the agent looked at. | Hype, "buy now" language, confident numbers with no sources, casino-like colour flashing |
+| **Self-directed investor** ("Priya", 38, manages her own ISA/401k, checks in weekly) | Evening sessions, laptop or phone. Holds 5–15 positions and ETFs. | A plain-English verdict with the evidence *next to* it. She must be able to see what the agent looked at. | Hype, "buy now" language, confident numbers with no sources, casino-like color flashing |
 | **Analyst / associate** ("Marco", 29, equity research at a small fund) | Desktop, second monitor, many tickers a day | Speed, dense and scannable output, exportable Markdown reports, and a record of which tools and data were used | Opaque reasoning, reports he can't copy into his own notes, a layout that wastes space |
 
 ### Jobs-to-be-done
@@ -31,7 +31,7 @@ The full lockup is "Meridian — Investment Research Agent". Space-constrained s
 ### High-frequency vs high-risk
 - *Daily/frequent:* glance at the watchlist, ask a question, read the answer.
 - *Rare but high-risk:* acting on a wrong or stale number. Mitigations: the "data may be delayed"
-  disclaimer is always visible, the tool outputs can be inspected, and the persona colours never
+  disclaimer is always visible, the tool outputs can be inspected, and the persona colors never
   mean "good" or "bad".
 
 ---
@@ -42,10 +42,10 @@ The full lockup is "Meridian — Investment Research Agent". Space-constrained s
 Meridian
 ├── Header ─ brand · model badge (/api/health) · New research · theme (System/Light/Dark)
 ├── Watchlist (left rail)      localStorage; rows → /api/quote/{t}
-│     ticker · name · price · Δ% (glyph+sign+colour) · 30-close sparkline · remove
+│     ticker · name · price · Δ% (glyph+sign+color) · 30-close sparkline · remove
 ├── Conversation (center)      primary workspace
 │     empty state: purpose line · 4 prompt chips · specialist roster
-│     turns: user query → streamed Markdown answer (sanitised)
+│     turns: user query → streamed Markdown answer (sanitized)
 │     composer: textarea · Send / Stop (AbortController) · live status (aria-live)
 ├── Context panel (right, tabs)
 │     Plan      ← `todos` events (pending / in progress / done, progress count)
@@ -97,7 +97,7 @@ Meridian
 ```
 Responsive priority: the conversation is the default view. The watchlist, plan, activity and
 reports become sibling views instead of cards stacked under the chat, so each keeps its full
-height and scanning behaviour. Nothing scrolls horizontally, and wide tables inside answers scroll inside their own box.
+height and scanning behavior. Nothing scrolls horizontally, and wide tables inside answers scroll inside their own box.
 
 ### Design contract (Finish-Gate template)
 
@@ -125,7 +125,7 @@ All tokens are CSS custom properties on `:root`. Dark mode is applied by
 `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {…} }` and by
 `:root[data-theme="dark"] {…}`, so the user's choice overrides the system setting.
 
-### Colour: neutrals are warm paper in light mode and graphite in dark mode; the accent is "meridian ink" blue
+### Color: neutrals are warm paper in light mode and graphite in dark mode; the accent is "meridian ink" blue
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
@@ -145,11 +145,13 @@ All tokens are CSS custom properties on `:root`. Dark mode is applied by
 | `--focus` | `#2448a8` | `#8cadff` | 2px outline + 2px offset |
 
 **Direction is never carried by hue alone.** Every change shows an arrow glyph (▲/▼/■ flat),
-an explicit sign (+/−) and colour. Sparkline stroke colour follows direction, and the sparkline also has a
-dashed reference line at the first close, so its shape reads the same in grayscale.
+an explicit sign (+/−) and color. Sparklines are drawn in **neutral ink** (`--text-2`) with a dashed
+reference line at the first close and a dot on the last close. Their shape shows the 30-close trend, so they
+are never tinted by *today's* change: an early build did this, and a stock that rose over 30 days but fell
+today got a red, rising line, which misleads the reader.
 
-**Agent identity** uses a categorical palette. Colour is always paired with a two-letter monogram
-and the agent's name, so identity survives CVD and grayscale. The colours mean "who", never "good or bad".
+**Agent identity** uses a categorical palette. Color is always paired with a two-letter monogram
+and the agent's name, so identity survives CVD and grayscale. The colors mean "who", never "good or bad".
 
 | Agent | Mono | Light fg / tint | Dark fg / tint |
 |---|---|---|---|
@@ -204,10 +206,10 @@ text streams. `prefers-reduced-motion: reduce` turns off all animation (the spin
 | "Researching NVDA: quant analyst is pulling 1-year prices." | "Crunching the numbers! 🚀" |
 | "Research only. Not investment advice. Data may be delayed." | "Find your next 10x" |
 | "Couldn't find ticker ZZZZ." | "Oops! Something went wrong 😢" |
-| Name the specialist and the tool | Anthropomorphised excitement |
+| Name the specialist and the tool | Anthropomorphized excitement |
 
 The UI never uses buy or sell language. The chips ask for *research*, *comparison*, *review* and *risks*.
-The primary colour is ink blue rather than green, so the "go" colour is never a market direction.
+The primary color is ink blue rather than green, so the "go" color is never a market direction.
 
 ---
 
@@ -223,11 +225,11 @@ The primary colour is ink blue rather than green, so the "go" colour is never a 
 - **Focus:** a visible 2px `--focus` outline with 2px offset on every interactive element; never removed.
 - **Live regions:** one `aria-live="polite"` status line announces phase changes (thinking, delegating to
   X, complete, stopped, error). Individual tokens are **not** announced. The plan count has its own polite region.
-- **Status is never colour-only:** todo status uses an icon, a text label for screen readers and colour. Tool state uses a spinner/✓/⚠
-  plus text. Price change uses arrow, sign and colour.
+- **Status is never color-only:** todo status uses an icon, a text label for screen readers and color. Tool state uses a spinner/✓/⚠
+  plus text. Price change uses arrow, sign and color.
 - **Charts:** each sparkline is an `<svg role="img">` with an `aria-label` stating the 30-close trend
   ("30-day closes, from 172.10 to 181.20, up 5.3%").
-- **Motion:** `prefers-reduced-motion` is honoured. **Touch:** targets are ≥ 40px on mobile.
+- **Motion:** `prefers-reduced-motion` is honored. **Touch:** targets are ≥ 40px on mobile.
 - **Security:** all Markdown goes through `marked` → `DOMPurify.sanitize`. Any other untrusted text goes into the page through
   `textContent`. If the CDN scripts fail, Markdown falls back to escaped plain text.
 
@@ -236,10 +238,33 @@ The primary colour is ink blue rather than green, so the "go" colour is never a 
 - No build step: `index.html`, `styles.css` and `app.js` (an IIFE with no globals). The only externals are marked 18 and
   DOMPurify 3 from cdnjs (loaded with SRI), plus the optional Google Fonts.
 - **SSE over POST:** `fetch()` + `ReadableStream` + `TextDecoder({stream:true})`. A buffer handles
-  chunk boundaries, normalises CRLF, splits on blank lines, joins multi-line `data:` fields and ignores `:` comments.
+  chunk boundaries, normalizes CRLF, splits on blank lines, joins multi-line `data:` fields and ignores `:` comments.
 - Markdown re-renders at most once per animation frame while streaming.
 - `token` events with `agent === "orchestrator"` build the answer. Subagent tokens are shown as a
   "working notes" preview in that agent's Activity group, so the answer isn't interleaved with drafts.
 - Threads: the id is created with `POST /api/threads` and stored in `sessionStorage` (`meridian.thread`). On reload the UI restores
   the conversation from `GET /messages` and the files from `GET /files`. **New research** aborts the run, clears state and creates a new thread.
 - Storage access (`localStorage` / `sessionStorage`) is always wrapped in try/catch, and the UI works without it.
+
+## 7. Finish gate: implementation review
+
+**Decision: PASS.** This was reviewed against the mock stream at 1440×900 (light and dark) and 375×812 (light and dark).
+The evidence is in `web/screenshots/`. axe-core (WCAG 2.1 A/AA + best-practice) reports 0 violations on every tab, in both
+themes and at both widths. Nothing scrolls horizontally at 375px, and there are no console errors other than the expected 404 when adding an unknown ticker.
+
+Findings were fixed during review, before PASS:
+1. The disclaimer footer was taking half the viewport because the hidden mobile nav left an empty grid row. The grid rows are now set separately for desktop and mobile.
+2. While subagents worked, the conversation column was empty. An **analyst trail** was added: a chip per delegated
+   specialist (badge, name, spinner or ✓), which opens Activity. A **"Step n of N: …"** line mirrors the in-progress todo.
+3. The running tool scrolled out of view in Activity. New calls are now revealed automatically unless the user scrolled in the last 4s.
+4. Long inline code paths (`/reports/NVDA_research.md`) made the mobile layout 412px wide. Code now wraps (`overflow-wrap: anywhere`).
+5. The streaming caret appeared on its own line after lists. It is now placed inside the deepest last text block.
+6. The sparkline hue conflicted with today's change. It is now neutral ink (see §3).
+7. The run-status icon had no size, and the new-research button had no name on mobile. Scrollable `<pre>` blocks weren't focusable. The heading order was wrong. All four are fixed.
+8. Returning to Chat on mobile after the run finished didn't stay pinned to the bottom. The chat now re-pins when it is shown.
+
+**Kept (these serve the product):** the answer reads as a document rather than a chat bubble, tabular numbers are right-aligned,
+agent monograms carry identity, the plan's progress count is visible, and the disclaimer is always on screen.
+
+**Optional refinements (not required for PASS):** a full-width reader mode for long reports, sources/citation
+chips if the API ever exposes them, and a price-refresh indicator per watchlist row.

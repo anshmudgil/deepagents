@@ -321,7 +321,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .roster .r-name { font-weight: 600; display: block; }
 .roster .r-desc { color: var(--text-3); }
 
-/* Agent badge: colour + monogram + name — never hue alone */
+/* Agent badge: color + monogram + name — never hue alone */
 .agent-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 26px; height: 22px; padding: 0 5px;
@@ -498,7 +498,7 @@ kbd {
   padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
-.agent-head .a-name { font-weight: 600; font-size: var(--fs-sm); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-head .a-name { margin: 0; font-weight: 600; font-size: var(--fs-sm); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-head .a-count { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .agent-head .a-live { font-size: var(--fs-xs); color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
 .notes { margin: 0; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-2); line-height: var(--lh-xs); }
@@ -525,7 +525,7 @@ kbd {
 .tool[data-status="done"] .st { color: var(--text-2); }
 .tool[data-status="error"] .st, .tool[data-status="cancelled"] .st { color: var(--warn); }
 .tool-body { padding: 0 var(--sp-3) var(--sp-3); }
-.tool-body h4 { margin: var(--sp-2) 0 var(--sp-1); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); font-weight: 600; }
+.tool-body h3 { margin: var(--sp-2) 0 var(--sp-1); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); font-weight: 600; }
 .tool-body pre {
   margin: 0; padding: var(--sp-2) var(--sp-3); max-height: 220px; overflow: auto;
   background: var(--surface-2); border-radius: var(--r-md);
