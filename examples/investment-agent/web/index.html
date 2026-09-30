@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Meridian Research</title>
+  <meta name="description" content="Meridian — an investment research agent. Research only; not investment advice.">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    /* Apply the stored theme before first paint to avoid a flash. */
+    (function () {
+      try {
+        var t = localStorage.getItem('meridian.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { /* storage unavailable: follow system */ }
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232448a8' stroke-width='3'/%3E%3Cpath d='M16 3v26' stroke='%232448a8' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/lib/marked.umd.min.js" integrity="sha512-trN9mtGYvoySPVI909KTnwbJI9AkKPydRCV/qAsUG1+q39hhpKltEag9b5JpdjeIZn5i8IH62hHRFdbKwMFh9w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.16/purify.min.js" integrity="sha512-flQmhkXNRQ3iUfvtdCobtpMjCb6kE+zLnTiAulAQJ3WykVfy84JvCMOo6vhwWXHTXjR25h9Zj+LyGFRWKjRoag==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script defer src="app.js"></script>
+</head>
+<body data-mview="chat">
+  <a class="skip-link" href="#composer-input">Skip to question box</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M16 3.5v25" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M5 16h22" stroke="currentColor" stroke-width="1.25" opacity=".45"/>
+      </svg>
+      <span class="brand-name">Meridian</span>
+      <span class="brand-sub" aria-hidden="true">—</span>
+      <span class="brand-sub">Investment Research Agent</span>
+    </div>
+    <div class="header-actions">
+      <span class="model-badge" id="model-badge" title="Model serving this agent">
+        <span class="dot" aria-hidden="true"></span><span class="model-label">Connecting…</span>
+      </span>
+      <button type="button" class="btn btn-secondary" id="new-research">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        <span class="btn-text">New research</span>
+      </button>
+      <div class="theme-toggle" role="radiogroup" aria-label="Colour theme">
+        <button type="button" role="radio" data-theme-choice="system" aria-checked="true" title="Match system">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="3" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 13.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="sr-only">System</span>
+        </button>
+        <button type="button" role="radio" data-theme-choice="light" aria-checked="false" title="Light">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="sr-only">Light</span>
+        </button>
+        <button type="button" role="radio" data-theme-choice="dark" aria-checked="false" title="Dark">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          <span class="sr-only">Dark</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="mobile-nav" aria-label="Views">
+    <div class="mobile-nav-inner" role="tablist" aria-label="Views" id="mobile-tabs">
+      <button type="button" role="tab" id="mtab-chat" data-mview="chat" aria-selected="true" aria-controls="main">Research</button>
+      <button type="button" role="tab" id="mtab-watch" data-mview="watch" aria-selected="false" aria-controls="watchlist" tabindex="-1">Watchlist</button>
+      <button type="button" role="tab" id="mtab-plan" data-mview="plan" aria-selected="false" aria-controls="context" tabindex="-1">Plan <span class="count" data-count="plan" hidden></span></button>
+      <button type="button" role="tab" id="mtab-activity" data-mview="activity" aria-selected="false" aria-controls="context" tabindex="-1">Activity <span class="count" data-count="activity" hidden></span></button>
+      <button type="button" role="tab" id="mtab-reports" data-mview="reports" aria-selected="false" aria-controls="context" tabindex="-1">Reports <span class="count" data-count="reports" hidden></span></button>
+    </div>
+  </nav>
+
+  <div class="workspace">
+    <!-- Watchlist -->
+    <aside class="rail" id="watchlist" aria-labelledby="watchlist-title">
+      <div class="panel-head">
+        <h2 class="panel-title" id="watchlist-title">Watchlist</h2>
+        <span class="panel-meta" id="watch-updated" aria-live="off"></span>
+      </div>
+      <form class="watch-add" id="watch-add" autocomplete="off" novalidate>
+        <label class="sr-only" for="watch-input">Add ticker to watchlist</label>
+        <input id="watch-input" name="ticker" type="text" inputmode="text" autocapitalize="characters"
+               spellcheck="false" maxlength="12" placeholder="Add ticker, e.g. AMD" aria-describedby="watch-error">
+        <button type="submit" class="btn btn-icon" aria-label="Add ticker">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </button>
+      </form>
+      <p class="field-error" id="watch-error" role="alert"></p>
+      <ul class="watch-list" id="watch-list" aria-label="Watched tickers"></ul>
+      <p class="rail-note">Select a ticker to draft a research question. Quotes may be delayed.</p>
+    </aside>
+
+    <!-- Conversation -->
+    <main class="main" id="main" aria-labelledby="conv-title">
+      <h1 class="sr-only" id="conv-title">Research conversation</h1>
+      <div class="conversation" id="conversation" tabindex="-1">
+        <section class="empty" id="empty-state" aria-labelledby="empty-title">
+          <h2 class="empty-title" id="empty-title">What would you like to research?</h2>
+          <p class="empty-lead">Meridian plans the work, hands it to specialist analysts, and writes a
+            report you can check and download. It does research only. It never places trades.</p>
+          <div class="chips" role="list" aria-label="Suggested questions">
+            <button type="button" class="chip" role="listitem" data-prompt="Full research report on NVDA">Full research report on NVDA</button>
+            <button type="button" class="chip" role="listitem" data-prompt="Compare MSFT vs GOOGL vs AMZN">Compare MSFT vs GOOGL vs AMZN</button>
+            <button type="button" class="chip" role="listitem" data-prompt="Review my portfolio: 40% AAPL, 30% VTI, 30% TLT">Review my portfolio: 40% AAPL, 30% VTI, 30% TLT</button>
+            <button type="button" class="chip" role="listitem" data-prompt="What are the key risks for TSLA over the next 12 months?">What are the key risks for TSLA over the next 12 months?</button>
+          </div>
+          <h3 class="roster-title">Who works on your question</h3>
+          <ul class="roster" id="roster"></ul>
+        </section>
+        <div class="turns" id="turns" role="log" aria-label="Conversation" aria-live="off"></div>
+      </div>
+
+      <div class="composer-wrap">
+        <p class="run-status" id="run-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <form class="composer" id="composer" novalidate>
+          <label class="sr-only" for="composer-input">Research question</label>
+          <textarea id="composer-input" rows="1" placeholder="Ask about a ticker, a comparison, or your portfolio…"
+                    aria-describedby="composer-hint"></textarea>
+          <div class="composer-actions">
+            <span class="composer-hint" id="composer-hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for new line</span>
+            <button type="submit" class="btn btn-primary" id="send-btn">
+              <span class="btn-text">Send</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" class="btn btn-stop" id="stop-btn" hidden>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></svg>
+              <span class="btn-text">Stop</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+
+    <!-- Context panel -->
+    <aside class="side" id="context" aria-label="Research context">
+      <div class="tabs" role="tablist" aria-label="Research context" id="side-tabs">
+        <button type="button" role="tab" id="tab-plan" data-tab="plan" aria-selected="true" aria-controls="panel-plan">Plan <span class="count" data-count="plan" hidden></span></button>
+        <button type="button" role="tab" id="tab-activity" data-tab="activity" aria-selected="false" aria-controls="panel-activity" tabindex="-1">Activity <span class="count" data-count="activity" hidden></span></button>
+        <button type="button" role="tab" id="tab-reports" data-tab="reports" aria-selected="false" aria-controls="panel-reports" tabindex="-1">Reports <span class="count" data-count="reports" hidden></span></button>
+      </div>
+
+      <section class="tab-panel" id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" tabindex="0">
+        <div class="plan-summary">
+          <p class="plan-count" id="plan-count" aria-live="polite">No plan yet</p>
+          <div class="progress" aria-hidden="true"><span id="plan-progress"></span></div>
+        </div>
+        <ol class="todo-list" id="todo-list"></ol>
+        <p class="panel-empty" id="plan-empty">When you ask a question, the agent's step-by-step plan appears here and updates as it works.</p>
+      </section>
+
+      <section class="tab-panel" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" tabindex="0" hidden>
+        <div class="activity" id="activity"></div>
+        <p class="panel-empty" id="activity-empty">Tool calls appear here, grouped by the analyst who made them. Open any call to inspect its inputs and output.</p>
+      </section>
+
+      <section class="tab-panel" id="panel-reports" role="tabpanel" aria-labelledby="tab-reports" tabindex="0" hidden>
+        <div class="reports">
+          <ul class="file-list" id="file-list" aria-label="Files written by the agent"></ul>
+          <div class="report-toolbar" id="report-toolbar" hidden>
+            <span class="report-path" id="report-path"></span>
+            <div class="report-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="copy-report">Copy</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="download-report">Download .md</button>
+            </div>
+          </div>
+          <article class="report-view md" id="report-view" aria-label="Report preview"></article>
+        </div>
+        <p class="panel-empty" id="reports-empty">Reports the agent writes, such as <code>/reports/NVDA_research.md</code>, appear here to read, copy or download.</p>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="app-footer" role="contentinfo">
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4M8 4.6v.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <p><strong>Research only.</strong> Not investment advice. Data may be delayed.</p>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
